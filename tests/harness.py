@@ -78,7 +78,7 @@ class Machine:
     def __init__(self, cpus: int = 1, mem: str = "256M", disk: Path | None = None,
                  fresh_disk: bool = True, virtio: str = "legacy", bootargs: str = "",
                  hypervisor: str = "qemu", accel: str | None = None, log: Path | None = None,
-                 tmpdir: Path | None = None):
+                 tmpdir: Path | None = None, machine_opts: str = ""):
         self.cpus = cpus
         self.hypervisor = hypervisor
         self.out = bytearray()
@@ -108,7 +108,8 @@ class Machine:
             if accel is None:
                 accel = os.environ.get("WREN_ACCEL", "tcg")
             cpu = "host" if accel == "hvf" else "cortex-a72"
-            cmd = ["qemu-system-aarch64", "-machine", "virt,gic-version=3", "-accel", accel,
+            machine = "virt,gic-version=3" + (f",{machine_opts}" if machine_opts else "")
+            cmd = ["qemu-system-aarch64", "-machine", machine, "-accel", accel,
                    "-cpu", cpu, "-smp", str(cpus), "-m", mem, "-display", "none",
                    "-serial", "stdio", "-monitor", "none", "-no-reboot", "-kernel", str(IMAGE),
                    "-drive", f"file={self.disk},if=none,format=raw,id=d0",

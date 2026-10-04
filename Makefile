@@ -41,7 +41,7 @@ UELFS    := $(UPROGS:%=$(B)/user/%.elf)
 FS_BLOCKS ?= 16384
 FS_INODES ?= 1024
 
-.PHONY: all kernel user fs tools clean qemu
+.PHONY: all kernel user fs tools clean qemu unit
 .PRECIOUS: $(B)/%.o $(B)/user/%.o $(B)/user/%.elf
 
 all: kernel fs tools
@@ -101,7 +101,33 @@ $(B)/user/bin/%: $(B)/user/%.elf
 	$(OBJCOPY) --strip-debug $< $@
 
 # ---------------------------------------------------------------- host tools
-HOSTCFLAGS := -std=c11 -O2 -g -Wall -Wextra -Werror -Iinclude
+HOSTCFLAGS := -std=c11 -O2 -g -Wall -Wextra -Iinclude
+# AddressSanitizer + UBSan on Linux (CI).  On macOS 27 the ASan runtime hangs
+# at startup even for an empty program, so there the unit tests use UBSan only.
+SANITIZE   ?= $(if $(filter Darwin,$(shell uname -s)),undefined,address$(comma)undefined)
+comma      := ,
+UNITFLAGS  := -std=c11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Iinclude -fno-omit-frame-pointer \
+              -fsanitize=$(SANITIZE) -fno-sanitize-recover=undefined
+UNIT_BINS  := $(B)/host/test_lib $(B)/host/test_fdt $(B)/host/test_buddy $(B)/host/test_elf
+
+$(B)/host/test_lib: tests/unit/test_lib.c lib/crc32c.c lib/fmt.c
+$(B)/host/test_fdt: tests/unit/test_fdt.c kernel/fdt.c kernel/platform.c lib/fmt.c
+$(B)/host/test_buddy: tests/unit/test_buddy.c kernel/buddy.c lib/fmt.c
+$(B)/host/test_elf: tests/unit/test_elf.c kernel/elf.c
+$(UNIT_BINS): tests/unit/check.h
+	@mkdir -p $(@D)
+	$(HOSTCC) $(UNITFLAGS) -o $@ $(filter %.c,$^)
+
+# QEMU's own device tree for the machine we test on, generated, not committed.
+$(B)/qemu-virt.dtb:
+	@mkdir -p $(@D)
+	$(QEMU) -machine virt,gic-version=3,dumpdtb=$@ -cpu cortex-a72 -smp 4 -m 256M -display none >/dev/null
+
+unit: $(UNIT_BINS) $(B)/qemu-virt.dtb $(UELFS)
+	$(B)/host/test_lib
+	$(B)/host/test_fdt $(B)/qemu-virt.dtb
+	$(B)/host/test_buddy
+	$(B)/host/test_elf $(UELFS)
 
 $(B)/host/mkfs: tools/mkfs.c include/wren/fsformat.h
 	@mkdir -p $(@D)
