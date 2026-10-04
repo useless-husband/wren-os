@@ -229,8 +229,10 @@ bench: all
 LINTWARN := -Wshadow -Wpointer-arith -Wundef -Wvla -Wformat=2 -Wnull-dereference \
             -Wmissing-prototypes -Wstrict-prototypes -Wimplicit-fallthrough -Wunreachable-code
 lint: all
-	$(Q)for f in $(KERNEL_C) $(KLIB_C); do $(CLANG) $(KCFLAGS) $(LINTWARN) -fsyntax-only $$f || exit 1; done
-	$(Q)for f in user/*.c user/lib/*.c; do $(CLANG) $(UCFLAGS) $(LINTWARN) -fsyntax-only $$f || exit 1; done
+	$(Q)for f in $(KERNEL_C) $(KLIB_C); do \
+	  $(CLANG) $(filter-out -MMD -MP,$(KCFLAGS)) $(LINTWARN) -fsyntax-only $$f || exit 1; done
+	$(Q)for f in user/*.c user/lib/*.c; do \
+	  $(CLANG) $(filter-out -MMD -MP,$(UCFLAGS)) $(LINTWARN) -fsyntax-only $$f || exit 1; done
 	$(Q)rm -f $(B)/analyzer.txt; for f in $(KERNEL_C); do \
 	  $(CLANG) --analyze $(filter-out -MMD -MP,$(KCFLAGS)) -Xclang -analyzer-output=text $$f -o /dev/null 2>>$(B)/analyzer.txt; done; \
 	  if grep -E "warning|error" $(B)/analyzer.txt; then exit 1; fi
