@@ -154,17 +154,23 @@ QEMU_CPU := $(if $(filter hvf,$(ACCEL)),host,cortex-a72)
 QEMU_MACHINE := -machine virt,gic-version=3 -accel $(ACCEL) -cpu $(QEMU_CPU) -smp $(CPUS) -m $(MEM)
 # VIRTIO=modern selects the virtio-mmio version 2 transport (LeapVM only has that one).
 QEMU_VIRTIO := $(if $(filter modern,$(VIRTIO)),-global virtio-mmio.force-legacy=false,)
-QEMU_DISK = -drive file=$(B)/fs.img,if=none,format=raw,id=d0 -device virtio-blk-device,drive=d0 $(QEMU_VIRTIO)
+QEMU_DISK = -drive file=$(B)/disk.img,if=none,format=raw,id=d0 -device virtio-blk-device,drive=d0 $(QEMU_VIRTIO)
 
-qemu: all
+# Interactive sessions use their own copy of the disk, so files you create
+# survive reboots while build/fs.img stays pristine for the tests.  A newer
+# fs.img (new programs) replaces it.
+$(B)/disk.img: $(B)/fs.img
+	cp $< $@
+
+qemu: all $(B)/disk.img
 	@echo "wren-os under QEMU: quit with Ctrl-A then x"
 	$(QEMU) $(QEMU_MACHINE) -nographic -kernel $(B)/Image $(QEMU_DISK)
 
 # Default: the LeapVM checkout in a project folder on the Desktop; override with LEAPVM=...
 LEAPVM ?= $(shell ls -d "$$HOME"/Desktop/*/*LeapVM/leapvm 2>/dev/null | head -1)
-leapvm: all
+leapvm: all $(B)/disk.img
 	@echo "wren-os under LeapVM: quit with Ctrl-A then x"
-	"$(LEAPVM)" -k $(B)/Image -c $(CPUS) -m $(patsubst %M,%,$(MEM)) --no-net --disk $(B)/fs.img
+	"$(LEAPVM)" -k $(B)/Image -c $(CPUS) -m $(patsubst %M,%,$(MEM)) --no-net --disk $(B)/disk.img
 
 # ------------------------------------------------------------------ tests
 # AddressSanitizer + UBSan on Linux (CI).  On macOS 27 the ASan runtime hangs

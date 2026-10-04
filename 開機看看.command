@@ -63,7 +63,9 @@ if [ ! -x "$LEAPVM_BIN" ] && ! command -v qemu-system-aarch64 >/dev/null 2>&1; t
 fi
 
 echo "== 1/2 編譯核心、使用者程式和虛擬硬碟（只有第一次或改過檔案才會花時間）..."
-if ! make -s all; then
+# build/fs.img 是測試用的全新硬碟；開機用的是它的副本 build/disk.img，
+# 你建立的檔案會留在副本裡。程式更新後 make 會用新版取代副本。
+if ! make -s all build/disk.img; then
   echo "編譯失敗，上面的訊息會說明原因。"
   pause_and_exit 1
 fi
@@ -71,18 +73,18 @@ fi
 echo
 echo "== 2/2 開機"
 echo "   離開方法：打 poweroff 再按 Enter；或先按 Ctrl-A 放開，再按 x"
-echo "   （虛擬硬碟是 build/fs.img，你建立的檔案下次開機還會在。"
-echo "     想還原成全新的硬碟：刪掉 build/fs.img 再雙擊一次。）"
+echo "   （虛擬硬碟是 build/disk.img，你建立的檔案下次開機還會在。"
+echo "     想還原成全新的硬碟：刪掉 build/disk.img 再雙擊一次。）"
 echo
 if [ -x "$LEAPVM_BIN" ]; then
   echo "   使用 LeapVM（4 顆 CPU、256 MB 記憶體）"
   echo
-  "$LEAPVM_BIN" -k build/Image -c 4 -m 256 --no-net --disk build/fs.img
+  "$LEAPVM_BIN" -k build/Image -c 4 -m 256 --no-net --disk build/disk.img
 else
   echo "   這台 Mac 沒有 LeapVM，改用 QEMU（4 顆 CPU、256 MB 記憶體）"
   echo
   qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -m 256M -nographic \
-    -kernel build/Image -drive file=build/fs.img,if=none,format=raw,id=d0 \
+    -kernel build/Image -drive file=build/disk.img,if=none,format=raw,id=d0 \
     -device virtio-blk-device,drive=d0
 fi
 status=$?
