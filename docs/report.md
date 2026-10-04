@@ -159,9 +159,10 @@ ignored. The disk image built by `make` is 64 MiB: 16,384 blocks, 1,024 inodes, 
 | Command | Result |
 |---|---|
 | `make unit` | test_lib 18, test_fdt 45, test_buddy 42,607, test_elf 72,434 checks; 0 failed |
-| `make system` (pytest, 23 tests) | 23 passed in about a minute (including the 2 LeapVM tests on macOS; CI skips those with a reason) |
+| `make system` (pytest, 24 tests) | 24 passed in about a minute (including the 2 LeapVM tests on macOS; CI skips those with a reason) |
 | `usertests` on 1 CPU / 4 CPUs | 40/40 and 40/40, about 2.5 s each under TCG |
-| `make stress` (60 s, 4 CPUs, 12 workers) | `STRESS OK`, about 3,800 verified operations per worker, 853,868 context switches, 0 pages not returned, `fsck` clean |
+| `make stress` (60 s, 4 CPUs, 12 workers) | `STRESS OK`, 56,096 verified operations, 1,095,310 context switches, 0 pages not returned, `fsck` clean |
+| 8 CPUs | boot test in `make system`; by hand: `usertests` 40/40 under QEMU, `stress 10` with 24 workers under LeapVM |
 | crash test, two batches of 300 | 600/600 consistent |
 | `make mutants` | 8/8 caught |
 | `make lint` | clean (extra warnings and the clang static analyzer, which found one real issue: section 10) |
@@ -199,7 +200,7 @@ transaction into the log by hand and checks that the kernel replays the first an
 | Mutant | Bug | Caught by |
 |---|---|---|
 | `no-tlb-flush-on-fork` | parent keeps stale writable TLB entries after fork | `usertests cow_isolation`: the parent's later writes reach the page the child shares |
-| `no-page-allocator-lock` | buddy allocator called without its lock | `stress` on 4 CPUs: `PANIC: page_put: ... not an allocated page` |
+| `no-page-allocator-lock` | buddy allocator called without its lock | `stress` on 4 CPUs: a panic (`page_put: ... not an allocated page`, or a kernel data abort; the race corrupts the free lists differently each run) |
 | `no-log-commit-record` | the header that commits a transaction is never written | crash test: acknowledged operations missing or half-applied |
 | `no-log-recovery` | mount ignores committed transactions | crash test: acknowledged operations lost |
 | `no-cow-refcount` | fork shares pages without taking a reference | `usertests -q`: `PANIC: page_put ...` once the child exits |

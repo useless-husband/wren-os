@@ -10,6 +10,7 @@ from harness import Machine
 @pytest.mark.parametrize("cpus,virtio,machine_opts", [
     (1, "legacy", ""),
     (4, "legacy", ""),
+    (8, "legacy", ""),
     (4, "modern", ""),                     # virtio-mmio version 2, the one LeapVM has
     (2, "legacy", "virtualization=on"),    # entered at EL2: exercises the drop to EL1
 ])

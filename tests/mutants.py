@@ -126,7 +126,8 @@ def run_mutant(m: dict) -> dict:
                 "fsck: ", "corrupted", "segmentation"):
         i = out.find(key)
         if i >= 0:
-            evidence = out[i:i + 160].splitlines()[0]
+            start = out.rfind("\n", 0, i) + 1          # quote the whole line
+            evidence = out[start:start + 200].splitlines()[0].strip()
             break
     shutil.rmtree(dest, ignore_errors=True)
     return {**m, "result": "caught" if r.returncode != 0 else "SURVIVED", "detail": evidence,
