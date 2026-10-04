@@ -83,7 +83,7 @@ if [ -x "$LEAPVM_BIN" ]; then
 else
   echo "   這台 Mac 沒有 LeapVM，改用 QEMU（4 顆 CPU、256 MB 記憶體）"
   echo
-  qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -m 256M -nographic \
+  qemu-system-aarch64 -machine virt,gic-version=3 -cpu cortex-a72 -smp 4 -m 256M -nographic -nic none \
     -kernel build/Image -drive file=build/disk.img,if=none,format=raw,id=d0 \
     -device virtio-blk-device,drive=d0
 fi

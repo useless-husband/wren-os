@@ -114,7 +114,8 @@ class Machine:
             machine = "virt,gic-version=3" + (f",{machine_opts}" if machine_opts else "")
             cmd = ["qemu-system-aarch64", "-machine", machine, "-accel", accel,
                    "-cpu", cpu, "-smp", str(cpus), "-m", mem, "-display", "none",
-                   "-serial", "stdio", "-monitor", "none", "-no-reboot", "-kernel", str(IMAGE),
+                   "-serial", "stdio", "-monitor", "none", "-no-reboot", "-nic", "none",
+                   "-kernel", str(IMAGE),
                    "-drive", f"file={self.disk},if=none,format=raw,id=d0",
                    "-device", "virtio-blk-device,drive=d0"]
             if virtio == "modern":

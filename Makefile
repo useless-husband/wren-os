@@ -151,7 +151,7 @@ MEM    ?= 256M
 ACCEL  ?= tcg
 VIRTIO ?= legacy
 QEMU_CPU := $(if $(filter hvf,$(ACCEL)),host,cortex-a72)
-QEMU_MACHINE := -machine virt,gic-version=3 -accel $(ACCEL) -cpu $(QEMU_CPU) -smp $(CPUS) -m $(MEM)
+QEMU_MACHINE := -machine virt,gic-version=3 -accel $(ACCEL) -cpu $(QEMU_CPU) -smp $(CPUS) -m $(MEM) -nic none
 # VIRTIO=modern selects the virtio-mmio version 2 transport (LeapVM only has that one).
 QEMU_VIRTIO := $(if $(filter modern,$(VIRTIO)),-global virtio-mmio.force-legacy=false,)
 QEMU_DISK = -drive file=$(B)/disk.img,if=none,format=raw,id=d0 -device virtio-blk-device,drive=d0 $(QEMU_VIRTIO)
@@ -193,7 +193,7 @@ $(UNIT_BINS): tests/unit/check.h
 # QEMU's own device tree for the machine we test on: generated, not committed.
 $(B)/qemu-virt.dtb:
 	@mkdir -p $(@D)
-	$(Q)$(QEMU) -machine virt,gic-version=3,dumpdtb=$@ -cpu cortex-a72 -smp 4 -m 256M -display none >/dev/null
+	$(Q)$(QEMU) -machine virt,gic-version=3,dumpdtb=$@ -cpu cortex-a72 -smp 4 -m 256M -display none -nic none >/dev/null
 
 unit: $(UNIT_BINS) $(B)/qemu-virt.dtb $(UELFS)
 	$(B)/host/test_lib
