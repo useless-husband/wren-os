@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Everything comes from Ubuntu's own packages: clang/lld/llvm 18 (the aarch64
+# target is built in) and QEMU 8.2 (qemu-system-aarch64, pure emulation: TCG,
+# no KVM on the runners).  The LeapVM test needs macOS on Apple Silicon and
+# is skipped here with a reason.
+
+env:
+  WREN_TIMEOUT_SCALE: "4"     # TCG on a shared x86 runner is several times slower than locally
+
+jobs:
+  build-unit-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install toolchain and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang lld llvm qemu-system-arm
+          clang --version | head -1
+          ld.lld --version
+          qemu-system-aarch64 --version | head -1
+      - name: Build kernel, user programs, disk image, host tools
+        run: make all
+      - name: Host unit tests (AddressSanitizer + UBSan)
+        run: make unit
+      - name: Lint (strict warnings, clang static analyzer)
+        run: make lint PYTHON=python
+
+  system:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install toolchain and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang lld llvm qemu-system-arm
+      - run: python -m pip install -r requirements-dev.txt
+      - run: make all
+      - name: "System tests: boot configurations, shell, usertests on 1 and 4 CPUs, fsck, SMP stress, crash consistency"
+        env:
+          WREN_CRASH_RUNS: "60"
+        run: make system PYTHON=python
+      - name: Mutation check (every deliberate bug must be caught)
+        run: make mutants PYTHON=python
+      - name: Benchmarks under TCG (emulated, for the record only)
+        run: make bench PYTHON=python
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs
+          path: |
+            build/logs/
+            build/mutants.md
+            build/bench-*.md
