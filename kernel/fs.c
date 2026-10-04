@@ -365,7 +365,7 @@ static bool name_eq(const char *a, const char *b)
 struct inode *dirlookup(struct inode *dp, const char *name, uint32_t *poff)
 {
     if (dp->type != DI_DIR) panic("dirlookup: not a directory");
-    struct dirent de;
+    struct dirent de = {0};
     for (uint32_t off = 0; off < dp->size; off += sizeof de) {
         if (readi(dp, false, (uint64_t)&de, off, sizeof de) != sizeof de) panic("dirlookup: read");
         if (de.inum && name_eq(name, de.name)) {

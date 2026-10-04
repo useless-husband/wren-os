@@ -1,5 +1,17 @@
 # wren-os -- run every target from the repository root.
 #
+#   make                build the kernel Image, the user programs, the disk image and host tools
+#   make qemu           boot to the shell under QEMU (CPUS=4, VIRTIO=legacy|modern, ACCEL=tcg|hvf)
+#   make leapvm         boot to the shell under LeapVM (macOS; LEAPVM=path/to/leapvm)
+#   make test           unit tests + all system tests (what CI runs)
+#   make unit           host unit tests only (FDT parser, buddy allocator, ELF checks, lib)
+#   make system         QEMU system tests (pytest): boot, shell, usertests on 1 and 4 CPUs, ...
+#   make crash          crash-consistency test, 300 seeded power cuts (CRASH_RUNS=...)
+#   make stress         60 s SMP stress on 4 CPUs
+#   make mutants        check that 8 deliberate bugs are each caught by a test
+#   make bench          micro-benchmarks (ACCEL=tcg|hvf, or HV=leapvm)
+#   make lint           strict warnings, clang static analyzer, Python syntax
+#
 # Every path is relative on purpose: the checkout may live in a directory
 # whose name contains spaces or non-ASCII characters, which make cannot
 # handle in absolute paths.
@@ -16,6 +28,8 @@ HOSTCC   ?= cc
 QEMU     ?= qemu-system-aarch64
 VENV     ?= .venv
 PYTHON   ?= $(if $(wildcard $(VENV)/bin/python),$(VENV)/bin/python,python3)
+V        ?= 0
+Q        := $(if $(filter 1,$(V)),,@)
 
 TARGET   := --target=aarch64-none-elf -march=armv8-a
 WARN     := -Wall -Wextra -Werror -Wno-unused-parameter
@@ -23,6 +37,7 @@ COMMON   := $(TARGET) -std=c11 -O2 -g -ffreestanding -fno-builtin -nostdlib -nos
             -fno-pic -fno-pie -fno-stack-protector -fno-omit-frame-pointer $(WARN) -MMD -MP
 KCFLAGS  := $(COMMON) -mgeneral-regs-only -mno-omit-leaf-frame-pointer -Ikernel -Iinclude
 KASFLAGS := $(TARGET) -g -Ikernel -Iinclude -D__ASSEMBLER__ -MMD -MP
+UCFLAGS  := $(COMMON) -Iinclude -Iuser
 
 B := build
 
@@ -32,16 +47,16 @@ KLIB_C   := lib/string.c lib/fmt.c lib/crc32c.c
 KOBJS    := $(KERNEL_S:kernel/%.S=$(B)/kernel/%.S.o) $(KERNEL_C:kernel/%.c=$(B)/kernel/%.o) \
             $(KLIB_C:lib/%.c=$(B)/klib/%.o)
 
-UCFLAGS  := $(COMMON) -Iinclude -Iuser
 UPROGS   := init sh echo cat ls wc grep mkdir rm ln kill ps sleep poweroff usertests fswork stress bench
 ULIB     := $(B)/user/lib/crt0.o $(B)/user/lib/syscalls.o $(B)/user/lib/ulib.o \
             $(B)/user/klib/string.o $(B)/user/klib/fmt.o
 UELFS    := $(UPROGS:%=$(B)/user/%.elf)
+UBINS    := $(UPROGS:%=$(B)/user/bin/%)
 
 FS_BLOCKS ?= 16384
 FS_INODES ?= 1024
 
-.PHONY: all kernel user fs tools clean qemu unit
+.PHONY: all kernel user fs tools clean qemu leapvm test unit system crash stress mutants bench lint venv
 .PRECIOUS: $(B)/%.o $(B)/user/%.o $(B)/user/%.elf
 
 all: kernel fs tools
@@ -51,61 +66,110 @@ user: $(UELFS)
 fs: $(B)/fs.img
 tools: $(B)/host/mkfs $(B)/host/fsck
 
+# ------------------------------------------------------------------ kernel
 $(B)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
-	$(CLANG) $(KCFLAGS) -c -o $@ $<
+	@echo "  CC      $<"
+	$(Q)$(CLANG) $(KCFLAGS) -c -o $@ $<
 
 $(B)/kernel/%.S.o: kernel/%.S
 	@mkdir -p $(@D)
-	$(CLANG) $(KASFLAGS) -c -o $@ $<
+	@echo "  AS      $<"
+	$(Q)$(CLANG) $(KASFLAGS) -c -o $@ $<
 
 $(B)/klib/%.o: lib/%.c
 	@mkdir -p $(@D)
-	$(CLANG) $(KCFLAGS) -c -o $@ $<
+	@echo "  CC      $< (kernel)"
+	$(Q)$(CLANG) $(KCFLAGS) -c -o $@ $<
 
 $(B)/kernel.elf: $(KOBJS) kernel/kernel.ld
-	$(LLD) -T kernel/kernel.ld --no-pie -z noexecstack -o $@ $(KOBJS)
+	@echo "  LD      $@"
+	$(Q)$(LLD) -T kernel/kernel.ld --no-pie -z noexecstack -o $@ $(KOBJS)
+
+# The raw Image is what both QEMU (-kernel) and LeapVM (-k) load.
+$(B)/Image: $(B)/kernel.elf
+	@echo "  IMAGE   $@"
+	$(Q)$(OBJCOPY) -O binary $< $@
 
 # The first process's code is a user program embedded in the kernel image.
 $(B)/kernel/initcode.S.o: $(B)/user/initcode.bin
 
 $(B)/user/initcode.bin: user/initcode.S user/user.ld
 	@mkdir -p $(@D)
-	$(CLANG) $(KASFLAGS) -c -o $(B)/user/initcode.o $<
-	$(LLD) -T user/user.ld -o $(B)/user/initcode.elf $(B)/user/initcode.o
-	$(OBJCOPY) -O binary -j .text $(B)/user/initcode.elf $@
+	$(Q)$(CLANG) $(KASFLAGS) -c -o $(B)/user/initcode.o $<
+	$(Q)$(LLD) -T user/user.ld -o $(B)/user/initcode.elf $(B)/user/initcode.o
+	$(Q)$(OBJCOPY) -O binary -j .text $(B)/user/initcode.elf $@
 
-# ---------------------------------------------------------------- user space
+# -------------------------------------------------------------- user space
 $(B)/user/lib/%.o: user/lib/%.S
 	@mkdir -p $(@D)
-	$(CLANG) $(KASFLAGS) -c -o $@ $<
+	$(Q)$(CLANG) $(KASFLAGS) -c -o $@ $<
 
 $(B)/user/lib/%.o: user/lib/%.c
 	@mkdir -p $(@D)
-	$(CLANG) $(UCFLAGS) -c -o $@ $<
+	@echo "  CC      $<"
+	$(Q)$(CLANG) $(UCFLAGS) -c -o $@ $<
 
 $(B)/user/klib/%.o: lib/%.c
 	@mkdir -p $(@D)
-	$(CLANG) $(UCFLAGS) -c -o $@ $<
+	$(Q)$(CLANG) $(UCFLAGS) -c -o $@ $<
 
 $(B)/user/%.o: user/%.c
 	@mkdir -p $(@D)
-	$(CLANG) $(UCFLAGS) -c -o $@ $<
+	@echo "  CC      $<"
+	$(Q)$(CLANG) $(UCFLAGS) -c -o $@ $<
 
 $(B)/user/%.elf: $(B)/user/%.o $(ULIB) user/user.ld
-	$(LLD) -T user/user.ld -o $@ $(ULIB) $<
+	$(Q)$(LLD) -T user/user.ld -o $@ $(ULIB) $<
 
 # What goes on the disk: the same ELF without debug sections.
 $(B)/user/bin/%: $(B)/user/%.elf
 	@mkdir -p $(@D)
-	$(OBJCOPY) --strip-debug $< $@
+	$(Q)$(OBJCOPY) --strip-debug $< $@
 
-# ---------------------------------------------------------------- host tools
+# -------------------------------------------------------------- host tools
 HOSTCFLAGS := -std=c11 -O2 -g -Wall -Wextra -Iinclude
+
+$(B)/host/mkfs: tools/mkfs.c include/wren/fsformat.h
+	@mkdir -p $(@D)
+	@echo "  HOSTCC  $<"
+	$(Q)$(HOSTCC) $(HOSTCFLAGS) -o $@ tools/mkfs.c
+
+$(B)/host/fsck: tools/fsck.c lib/crc32c.c include/wren/fsformat.h
+	@mkdir -p $(@D)
+	@echo "  HOSTCC  $<"
+	$(Q)$(HOSTCC) $(HOSTCFLAGS) -o $@ tools/fsck.c lib/crc32c.c
+
+$(B)/fs.img: $(B)/host/mkfs $(UBINS) user/files/motd.txt
+	@echo "  MKFS    $@"
+	$(Q)$(B)/host/mkfs -o $@ -s $(FS_BLOCKS) -i $(FS_INODES) /motd.txt=user/files/motd.txt \
+	  $(foreach p,$(UPROGS),/bin/$(p)=$(B)/user/bin/$(p)) >/dev/null
+
+# -------------------------------------------------------------- running
+CPUS   ?= 4
+MEM    ?= 256M
+ACCEL  ?= tcg
+VIRTIO ?= legacy
+QEMU_CPU := $(if $(filter hvf,$(ACCEL)),host,cortex-a72)
+QEMU_MACHINE := -machine virt,gic-version=3 -accel $(ACCEL) -cpu $(QEMU_CPU) -smp $(CPUS) -m $(MEM)
+# VIRTIO=modern selects the virtio-mmio version 2 transport (LeapVM only has that one).
+QEMU_VIRTIO := $(if $(filter modern,$(VIRTIO)),-global virtio-mmio.force-legacy=false,)
+QEMU_DISK = -drive file=$(B)/fs.img,if=none,format=raw,id=d0 -device virtio-blk-device,drive=d0 $(QEMU_VIRTIO)
+
+qemu: all
+	@echo "wren-os under QEMU: quit with Ctrl-A then x"
+	$(QEMU) $(QEMU_MACHINE) -nographic -kernel $(B)/Image $(QEMU_DISK)
+
+LEAPVM ?= $(HOME)/Desktop/Claude專案/Mac自製Linux虛擬機 LeapVM/leapvm
+leapvm: all
+	@echo "wren-os under LeapVM: quit with Ctrl-A then x"
+	"$(LEAPVM)" -k $(B)/Image -c $(CPUS) -m $(patsubst %M,%,$(MEM)) --no-net --disk $(B)/fs.img
+
+# ------------------------------------------------------------------ tests
 # AddressSanitizer + UBSan on Linux (CI).  On macOS 27 the ASan runtime hangs
 # at startup even for an empty program, so there the unit tests use UBSan only.
-SANITIZE   ?= $(if $(filter Darwin,$(shell uname -s)),undefined,address$(comma)undefined)
 comma      := ,
+SANITIZE   ?= $(if $(filter Darwin,$(shell uname -s)),undefined,address$(comma)undefined)
 UNITFLAGS  := -std=c11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Iinclude -fno-omit-frame-pointer \
               -fsanitize=$(SANITIZE) -fno-sanitize-recover=undefined
 UNIT_BINS  := $(B)/host/test_lib $(B)/host/test_fdt $(B)/host/test_buddy $(B)/host/test_elf
@@ -116,12 +180,13 @@ $(B)/host/test_buddy: tests/unit/test_buddy.c kernel/buddy.c lib/fmt.c
 $(B)/host/test_elf: tests/unit/test_elf.c kernel/elf.c
 $(UNIT_BINS): tests/unit/check.h
 	@mkdir -p $(@D)
-	$(HOSTCC) $(UNITFLAGS) -o $@ $(filter %.c,$^)
+	@echo "  HOSTCC  $@ ($(SANITIZE) sanitizer)"
+	$(Q)$(HOSTCC) $(UNITFLAGS) -o $@ $(filter %.c,$^)
 
-# QEMU's own device tree for the machine we test on, generated, not committed.
+# QEMU's own device tree for the machine we test on: generated, not committed.
 $(B)/qemu-virt.dtb:
 	@mkdir -p $(@D)
-	$(QEMU) -machine virt,gic-version=3,dumpdtb=$@ -cpu cortex-a72 -smp 4 -m 256M -display none >/dev/null
+	$(Q)$(QEMU) -machine virt,gic-version=3,dumpdtb=$@ -cpu cortex-a72 -smp 4 -m 256M -display none >/dev/null
 
 unit: $(UNIT_BINS) $(B)/qemu-virt.dtb $(UELFS)
 	$(B)/host/test_lib
@@ -129,35 +194,41 @@ unit: $(UNIT_BINS) $(B)/qemu-virt.dtb $(UELFS)
 	$(B)/host/test_buddy
 	$(B)/host/test_elf $(UELFS)
 
-$(B)/host/mkfs: tools/mkfs.c include/wren/fsformat.h
-	@mkdir -p $(@D)
-	$(HOSTCC) $(HOSTCFLAGS) -o $@ tools/mkfs.c
+venv: $(VENV)/bin/python
+$(VENV)/bin/python: requirements-dev.txt
+	python3 -m venv $(VENV)
+	$(VENV)/bin/pip install -q -r requirements-dev.txt
+	@touch $@
 
-UBINS := $(UPROGS:%=$(B)/user/bin/%)
+system: all
+	WREN_SKIP_BUILD=1 $(PYTHON) -m pytest -v tests
 
-$(B)/host/fsck: tools/fsck.c lib/crc32c.c include/wren/fsformat.h
-	@mkdir -p $(@D)
-	$(HOSTCC) $(HOSTCFLAGS) -o $@ tools/fsck.c lib/crc32c.c
+test: unit system
 
-$(B)/fs.img: $(B)/host/mkfs $(UBINS) user/files/motd.txt
-	$(B)/host/mkfs -o $@ -s $(FS_BLOCKS) -i $(FS_INODES) /motd.txt=user/files/motd.txt \
-	  $(foreach p,$(UPROGS),/bin/$(p)=$(B)/user/bin/$(p))
+CRASH_RUNS ?= 300
+crash: all
+	$(PYTHON) tests/crash.py --runs $(CRASH_RUNS) --jobs 4
 
-# The raw Image is what both QEMU (-kernel) and LeapVM (-k) load.
-$(B)/Image: $(B)/kernel.elf
-	$(OBJCOPY) -O binary $< $@
+stress: all
+	$(PYTHON) tests/harness.py --cpus 4 --expect "STRESS OK" --fsck --timeout 600 "stress 60"
 
-CPUS ?= 4
-MEM  ?= 256M
-QEMU_MACHINE := -machine virt,gic-version=3 -cpu cortex-a72 -smp $(CPUS) -m $(MEM)
+mutants: all
+	$(PYTHON) tests/mutants.py
 
-# VIRTIO=modern selects the virtio-mmio version 2 transport (LeapVM only has that one).
-VIRTIO ?= legacy
-QEMU_VIRTIO := $(if $(filter modern,$(VIRTIO)),-global virtio-mmio.force-legacy=false,)
-QEMU_DISK = -drive file=$(B)/fs.img,if=none,format=raw,id=d0 -device virtio-blk-device,drive=d0 $(QEMU_VIRTIO)
+HV ?= qemu
+bench: all
+	$(PYTHON) tests/bench.py --hypervisor $(HV) --accel $(ACCEL)
 
-qemu: $(B)/Image $(B)/fs.img
-	$(QEMU) $(QEMU_MACHINE) -nographic -kernel $(B)/Image $(QEMU_DISK)
+LINTWARN := -Wshadow -Wpointer-arith -Wundef -Wvla -Wformat=2 -Wnull-dereference \
+            -Wmissing-prototypes -Wstrict-prototypes -Wimplicit-fallthrough -Wunreachable-code
+lint: all
+	$(Q)for f in $(KERNEL_C) $(KLIB_C); do $(CLANG) $(KCFLAGS) $(LINTWARN) -fsyntax-only $$f || exit 1; done
+	$(Q)for f in user/*.c user/lib/*.c; do $(CLANG) $(UCFLAGS) $(LINTWARN) -fsyntax-only $$f || exit 1; done
+	$(Q)rm -f $(B)/analyzer.txt; for f in $(KERNEL_C); do \
+	  $(CLANG) --analyze $(filter-out -MMD -MP,$(KCFLAGS)) -Xclang -analyzer-output=text $$f -o /dev/null 2>>$(B)/analyzer.txt; done; \
+	  if grep -E "warning|error" $(B)/analyzer.txt; then exit 1; fi
+	$(Q)$(PYTHON) -m py_compile tests/*.py
+	@echo "lint: clean (strict warnings, static analyzer)"
 
 clean:
 	rm -rf $(B)

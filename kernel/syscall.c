@@ -6,12 +6,6 @@
 #include <wren/fsformat.h>
 #include <wren/syscall.h>
 
-SYSCALL(fork); SYSCALL(exit); SYSCALL(waitpid); SYSCALL(pipe); SYSCALL(read); SYSCALL(write);
-SYSCALL(close); SYSCALL(kill); SYSCALL(exec); SYSCALL(open); SYSCALL(mknod); SYSCALL(unlink);
-SYSCALL(fstat); SYSCALL(link); SYSCALL(mkdir); SYSCALL(chdir); SYSCALL(dup); SYSCALL(dup2);
-SYSCALL(getpid); SYSCALL(sbrk); SYSCALL(sleep); SYSCALL(uptime); SYSCALL(procinfo);
-SYSCALL(poweroff); SYSCALL(getcpu); SYSCALL(lseek); SYSCALL(crashctl); SYSCALL(getppid); SYSCALL(kstat);
-
 static const syscall_fn table[NSYSCALL] = {
     [SYS_fork] = sys_fork,         [SYS_exit] = sys_exit,         [SYS_waitpid] = sys_waitpid,
     [SYS_pipe] = sys_pipe,         [SYS_read] = sys_read,         [SYS_write] = sys_write,

@@ -170,7 +170,7 @@ SYSCALL(open)
     log_begin_op();
     if (flags & O_CREATE) {
         r = create(path, DI_FILE, 0, &ip);
-        if (r < 0) {
+        if (r != 0) {
             log_end_op();
             return r;
         }

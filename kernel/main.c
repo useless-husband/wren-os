@@ -16,6 +16,7 @@
 #include "proc.h"
 #include "psci.h"
 #include "stats.h"
+#include "trap.h"
 #include "vm.h"
 
 struct cpu cpus[NCPU];

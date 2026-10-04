@@ -53,7 +53,7 @@ int vformat(fmt_sink sink, void *ctx, const char *fmt, va_list ap)
             goto number;
         }
         case 'u': u = lng ? va_arg(ap, uint64_t) : va_arg(ap, unsigned); goto number;
-        case 'X': upper = 1; /* fall through */
+        case 'X': upper = 1; __attribute__((fallthrough));
         case 'x': base = 16; u = lng ? va_arg(ap, uint64_t) : va_arg(ap, unsigned); goto number;
         case 'o': base = 8; u = lng ? va_arg(ap, uint64_t) : va_arg(ap, unsigned); goto number;
         case 'p':

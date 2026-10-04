@@ -11,4 +11,12 @@ int fetch_path(struct trapframe *tf, int i, char *buf);   /* MAXPATH bytes; vali
 
 #define SYSCALL(name) int64_t sys_##name(struct trapframe *tf)
 
+/* Every system call handler (defined in sysproc.c, sysfile.c, exec.c). */
+SYSCALL(fork); SYSCALL(exit); SYSCALL(waitpid); SYSCALL(pipe); SYSCALL(read); SYSCALL(write);
+SYSCALL(close); SYSCALL(kill); SYSCALL(exec); SYSCALL(open); SYSCALL(mknod); SYSCALL(unlink);
+SYSCALL(fstat); SYSCALL(link); SYSCALL(mkdir); SYSCALL(chdir); SYSCALL(dup); SYSCALL(dup2);
+SYSCALL(getpid); SYSCALL(sbrk); SYSCALL(sleep); SYSCALL(uptime); SYSCALL(procinfo);
+SYSCALL(poweroff); SYSCALL(getcpu); SYSCALL(lseek); SYSCALL(crashctl); SYSCALL(getppid); SYSCALL(kstat);
+
+
 #endif
