@@ -159,3 +159,29 @@ def test_replays_committed_log_and_ignores_uncommitted(img):
     want = crashmodel.crc32c(bytes(new[:size]))
     line = next(l for l in r.stdout.splitlines() if l.startswith("/motd.txt"))
     assert int(line.split()[3], 16) == want
+
+
+@pytest.mark.parametrize("committed", [True, False])
+def test_kernel_recovery_of_crafted_log(img, committed, logdir):
+    """The kernel's own recovery, independent of the crash workload: a
+    transaction written into the log by hand must be replayed at mount when
+    its checksum matches and discarded when it does not."""
+    from harness import Machine
+    im = Image(img)
+    blk = im.inode(im.lookup("/motd.txt"))[3][0]
+    new = bytearray(im.data[blk * BSIZE:(blk + 1) * BSIZE])
+    new[0:7] = b"REPLAY!"
+    _write_log(im, {blk: bytes(new)}, seq=500, good_crc=committed)
+    im.save()
+    with Machine(cpus=1, disk=img, fresh_disk=False, log=logdir / f"recovery-{committed}.log") as m:
+        m.wait_prompt(60)
+        boot = m.text()
+        first = m.run("cat /motd.txt").splitlines()[0]
+        m.poweroff()
+    if committed:
+        assert "log: replayed committed transaction 500 (1 blocks)" in boot
+        assert first.startswith("REPLAY!")
+    else:
+        assert "log: discarding uncommitted transaction 500" in boot
+        assert first.startswith("Welcome")
+    assert run_fsck(img).returncode == 0
