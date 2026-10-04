@@ -44,8 +44,11 @@ def leapvm_path() -> Path | None:
     env = os.environ.get("LEAPVM")
     if env:
         return Path(env) if Path(env).exists() else None
-    p = Path.home() / "Desktop" / "Claude專案" / "Mac自製Linux虛擬機 LeapVM" / "leapvm"
-    return p if p.exists() else None
+    # default: a LeapVM checkout inside a project folder on the Desktop
+    for p in sorted(Path.home().glob("Desktop/*/*LeapVM/leapvm")):
+        if p.exists():
+            return p
+    return None
 
 
 class GuestPanic(AssertionError):

@@ -160,7 +160,8 @@ qemu: all
 	@echo "wren-os under QEMU: quit with Ctrl-A then x"
 	$(QEMU) $(QEMU_MACHINE) -nographic -kernel $(B)/Image $(QEMU_DISK)
 
-LEAPVM ?= $(HOME)/Desktop/Claude專案/Mac自製Linux虛擬機 LeapVM/leapvm
+# Default: the LeapVM checkout in a project folder on the Desktop; override with LEAPVM=...
+LEAPVM ?= $(shell ls -d "$$HOME"/Desktop/*/*LeapVM/leapvm 2>/dev/null | head -1)
 leapvm: all
 	@echo "wren-os under LeapVM: quit with Ctrl-A then x"
 	"$(LEAPVM)" -k $(B)/Image -c $(CPUS) -m $(patsubst %M,%,$(MEM)) --no-net --disk $(B)/fs.img

@@ -4,7 +4,7 @@
 同一個核心 `Image` 可以在兩台不同的虛擬機上開機：QEMU 的 `virt` 機器，和 LeapVM
 （我自己寫的 Apple Silicon 虛擬機）；所有裝置都是從 device tree 查出來的。
 它有支援管線、重新導向和背景工作的 shell，最多可用 8 顆 CPU，
-檔案存在有預寫日誌（write-ahead log）的硬碟上，斷電也不會損壞。
+檔案存在有預寫日誌（write-ahead log）的硬碟上，斷電後檔案系統仍然一致（用 600 次模擬斷電測過）。
 
 這是模仿 MIT（6.1810，xv6）、哈佛（CS 161，Chickadee）、耶魯（CPSC 422，mCertiKOS）
 作業系統課程的**學習用重做**，不是新點子，也和這些課程沒有關係。程式碼都是自己寫的，

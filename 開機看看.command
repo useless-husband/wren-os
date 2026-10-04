@@ -49,8 +49,14 @@ if [ ! -x /opt/homebrew/opt/lld/bin/ld.lld ] && ! command -v ld.lld >/dev/null 2
   pause_and_exit 1
 fi
 
-# 找 LeapVM：可以用環境變數 LEAPVM 指定位置，否則看桌面上的預設資料夾
-LEAPVM_BIN="${LEAPVM:-$HOME/Desktop/Claude專案/Mac自製Linux虛擬機 LeapVM/leapvm}"
+# 找 LeapVM：可以用環境變數 LEAPVM 指定位置，否則在桌面的專案資料夾裡找
+# （任何「桌面/某個資料夾/名稱以 LeapVM 結尾的資料夾/leapvm」）
+LEAPVM_BIN="${LEAPVM:-}"
+if [ -z "$LEAPVM_BIN" ]; then
+  for f in "$HOME"/Desktop/*/*LeapVM/leapvm; do
+    [ -x "$f" ] && LEAPVM_BIN="$f" && break
+  done
+fi
 if [ ! -x "$LEAPVM_BIN" ] && ! command -v qemu-system-aarch64 >/dev/null 2>&1; then
   echo "沒有 LeapVM，也找不到 QEMU。請在終端機執行：brew install qemu"
   pause_and_exit 1

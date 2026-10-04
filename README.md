@@ -4,7 +4,8 @@ A small multicore Unix-like operating system kernel for 64-bit ARM (AArch64), wr
 C and assembly. It boots the same kernel `Image` on two different virtual machines, QEMU's `virt`
 board and LeapVM (a hypervisor for Apple Silicon that I also wrote), discovering every device from
 the device tree. It runs a shell with pipes, redirection and background jobs on up to 8 CPUs, and
-keeps its files on a disk with a write-ahead log so that a power cut never corrupts them.
+keeps its files on a disk with a write-ahead log, so the file system stays consistent across power
+cuts (tested with 600 injected ones).
 
 This is a **learning reimplementation** in the style of the operating-systems courses at MIT
 (6.1810, xv6), Harvard (CS 161, Chickadee) and Yale (CPSC 422, mCertiKOS). It is not a new idea and
