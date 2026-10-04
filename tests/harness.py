@@ -234,3 +234,48 @@ class Machine:
 
 def host_is_macos() -> bool:
     return platform.system() == "Darwin"
+
+
+def main(argv=None) -> int:
+    """Boot, run one command, check its output:
+
+        python3 tests/harness.py [--cpus N] [--leapvm] [--expect TEXT] [--timeout S] [--fsck] "command"
+
+    Exit status 0 if TEXT appeared (and, with --fsck, the disk is clean after
+    power-off); 1 otherwise, including kernel panics and timeouts."""
+    import argparse
+    import subprocess as sp
+    ap = argparse.ArgumentParser()
+    ap.add_argument("command")
+    ap.add_argument("--cpus", type=int, default=1)
+    ap.add_argument("--leapvm", action="store_true")
+    ap.add_argument("--expect", default="")
+    ap.add_argument("--timeout", type=float, default=600)
+    ap.add_argument("--fsck", action="store_true")
+    a = ap.parse_args(argv)
+    disk = BUILD / "tmp" / f"cli-{os.getpid()}.img"
+    disk.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(FS_IMG, disk)
+    ok = False
+    try:
+        with Machine(cpus=a.cpus, disk=disk, fresh_disk=False,
+                     hypervisor="leapvm" if a.leapvm else "qemu") as m:
+            m.wait_prompt(60)
+            out = m.run(a.command, timeout=a.timeout)
+            print(out)
+            ok = a.expect in out
+            m.poweroff()
+        if ok and a.fsck:
+            r = sp.run([str(BUILD / "host" / "fsck"), str(disk)], capture_output=True, text=True)
+            print(r.stdout + r.stderr)
+            ok = r.returncode == 0
+    except (GuestPanic, GuestTimeout) as e:
+        print(f"{type(e).__name__}: {e}")
+        ok = False
+    finally:
+        disk.unlink(missing_ok=True)
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
