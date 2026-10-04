@@ -170,6 +170,7 @@ static void t_kill(void)
         check_eq(st, -1);
     }
     check_eq(kill(99999), -ESRCH);
+    check_eq(kill(1), -EPERM);                /* init is protected */
 }
 
 static void t_kill_pipe_reader(void)
@@ -669,8 +670,10 @@ static void t_directories(void)
     check_eq(st.nlink, 2);                    /* "/d1" entry + its own "." */
     check_eq(open("/d1", O_WRONLY), -EISDIR);
     close(fd);
+    check_eq(chdir("/d1"), 0);
+    check_eq(unlink("/d1"), 0);               /* removing our own cwd is allowed... */
+    check_eq(open("x", O_CREATE | O_RDWR), -ENOENT);   /* ...but nothing can be created in it */
     check_eq(chdir("/"), 0);
-    check_eq(unlink("/d1"), 0);
     check_eq(open("/aaaaaaaaaabbbbbbbbbbccccccccccd", O_CREATE | O_RDWR), -ENAMETOOLONG);
 }
 

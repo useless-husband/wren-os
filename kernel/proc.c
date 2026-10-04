@@ -195,6 +195,7 @@ void proc_kill_self(void)
 
 int proc_kill(int pid)
 {
+    if (initproc && pid == initproc->pid) return -EPERM;   /* init must never exit */
     spin_lock(&proc_lock);
     for (struct proc *p = ptable; p < ptable + NPROC; p++) {
         if (p->pid == pid && p->state != P_UNUSED && p->state != P_ZOMBIE) {

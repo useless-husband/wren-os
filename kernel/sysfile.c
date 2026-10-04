@@ -117,6 +117,10 @@ static int create(const char *path, uint16_t type, uint16_t major, struct inode 
     struct inode *dp = nameiparent(path, name);
     if (!dp) return -ENOENT;
     ilock(dp);
+    if (dp->nlink == 0) {          /* removed directory, still someone's cwd */
+        iunlockput(dp);
+        return -ENOENT;
+    }
     struct inode *ip = dirlookup(dp, name, NULL);
     if (ip) {
         iunlockput(dp);
