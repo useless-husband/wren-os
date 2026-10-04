@@ -143,6 +143,10 @@ def one_run(seed: int, workloads: Workloads, tmp: Path) -> dict:
     except (AssertionError, GuestPanic, GuestTimeout) as e:
         desc["ok"] = False
         desc["error"] = str(e)
+    except Exception:            # a bug in the test itself still counts as a failed run
+        import traceback
+        desc["ok"] = False
+        desc["error"] = traceback.format_exc()
     finally:
         if img.exists():
             img.unlink()

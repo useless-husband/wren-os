@@ -195,10 +195,17 @@ class Machine:
 
     def wait_exit(self, timeout: float = 30.0) -> int:
         try:
-            return self.proc.wait(timeout * TIMEOUT_SCALE)
+            rc = self.proc.wait(timeout * TIMEOUT_SCALE)
         except subprocess.TimeoutExpired:
             self.kill()
             raise GuestTimeout("machine did not power off")
+        self._drain()
+        return rc
+
+    def _drain(self):
+        """After the process is gone, read what is still in the pipe: the
+        guest's last lines must not be lost (the crash test depends on it)."""
+        self.reader.join(timeout=10)
 
     def kill(self):
         """Pull the plug: SIGKILL the hypervisor process."""
@@ -208,6 +215,7 @@ class Machine:
             except ProcessLookupError:
                 pass
             self.proc.wait()
+        self._drain()
 
     def close(self):
         self.kill()

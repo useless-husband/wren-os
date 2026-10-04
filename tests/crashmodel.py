@@ -127,7 +127,11 @@ def parse(console: str):
     """Return (completed ops in order, in-flight op or None, finished?)."""
     ops: dict[int, list[str]] = {}
     done: list[int] = []
-    for line in console.splitlines():
+    lines = console.split("\n")
+    # The last element is an unterminated line when the power was cut while
+    # the guest was printing it.  An OP line is printed before its first
+    # system call, so a cut-off announcement means the operation never began.
+    for line in lines[:-1]:
         m = re.match(r"OP (\d+) (.*)$", line.strip())
         if m:
             ops[int(m.group(1))] = m.group(2).split()

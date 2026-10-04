@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="700" viewBox="0 0 920 700" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <title>wren-os architecture</title>
+  <rect x="0" y="0" width="920" height="700" fill="#ffffff"/>
+
+  <!-- ===== user space ===== -->
+  <rect x="20" y="20" width="880" height="118" rx="6" fill="#eef4fb" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="34" y="42" font-weight="bold" fill="#1f3b63">User space (EL0) - one TTBR0 address space per process, tagged with an 8-bit ASID</text>
+  <g fill="#ffffff" stroke="#4a6fa5">
+    <rect x="34" y="54" width="120" height="30" rx="3"/>
+    <rect x="164" y="54" width="230" height="30" rx="3"/>
+    <rect x="404" y="54" width="290" height="30" rx="3"/>
+    <rect x="704" y="54" width="182" height="30" rx="3"/>
+  </g>
+  <g fill="#1f3b63">
+    <text x="44" y="74">init</text>
+    <text x="174" y="74">sh: pipes, &lt; &gt; &gt;&gt;, &amp; jobs</text>
+    <text x="414" y="74">ls cat echo grep wc mkdir rm ln kill ps</text>
+    <text x="714" y="74">usertests stress fswork bench</text>
+  </g>
+  <rect x="34" y="94" width="852" height="30" rx="3" fill="#ffffff" stroke="#4a6fa5"/>
+  <text x="44" y="114" fill="#1f3b63">libc (user/lib): crt0, syscall stubs (svc #0, number in x8), printf, malloc on sbrk, string routines shared with the kernel</text>
+
+  <!-- boundary -->
+  <line x1="20" y1="152" x2="900" y2="152" stroke="#333" stroke-dasharray="6 4"/>
+  <text x="34" y="170" fill="#333">exception vectors (entry.S): SVC, page faults, IRQs  -  trap frame saved on the process's 16 KiB kernel stack</text>
+
+  <!-- ===== kernel ===== -->
+  <rect x="20" y="182" width="880" height="380" rx="6" fill="#f6f6f2" stroke="#6b6b5a" stroke-width="1.5"/>
+  <text x="34" y="204" font-weight="bold" fill="#3a3a2c">Kernel (EL1) - linked at 0xffffffffc0000000, all RAM in a linear map at 0xffff000000000000</text>
+
+  <!-- column 1: processes -->
+  <rect x="34" y="216" width="270" height="200" rx="4" fill="#ffffff" stroke="#8a6d3b"/>
+  <text x="46" y="236" font-weight="bold" fill="#5c4520">Processes</text>
+  <g fill="#3a3a2c">
+    <text x="46" y="258">trap.c, syscall.c: dispatch, 29 calls</text>
+    <text x="46" y="278">proc.c: fork / exit / wait / kill</text>
+    <text x="46" y="298">per-CPU scheduler thread,</text>
+    <text x="46" y="316">global FIFO run queue, 10 ms tick</text>
+    <text x="46" y="336">sleep / wakeup on channels</text>
+    <text x="46" y="356">exec.c: ELF loader (elf.c checks)</text>
+    <text x="46" y="376">pipe.c, file.c: fd table, dup2</text>
+    <text x="46" y="396">FP/SIMD saved at context switch</text>
+  </g>
+
+  <!-- column 2: memory -->
+  <rect x="318" y="216" width="270" height="200" rx="4" fill="#ffffff" stroke="#3b7a57"/>
+  <text x="330" y="236" font-weight="bold" fill="#24513a">Memory</text>
+  <g fill="#3a3a2c">
+    <text x="330" y="258">vm.c: 4-level tables, 4 KiB pages</text>
+    <text x="330" y="278">copy-on-write fork (refcounts)</text>
+    <text x="330" y="298">lazy heap (sbrk) and stack</text>
+    <text x="330" y="318">W^X; ASIDs, TLBI broadcast</text>
+    <text x="330" y="338">copyin / copyout walk in software</text>
+    <text x="330" y="358">kalloc.c + buddy.c: page allocator</text>
+    <text x="330" y="378">kmalloc: 32 B .. 2 KiB size classes</text>
+    <text x="330" y="398">spinlock.c: ticket locks, sleep locks</text>
+  </g>
+
+  <!-- column 3: file system stack -->
+  <rect x="602" y="216" width="284" height="200" rx="4" fill="#ffffff" stroke="#7a3b5c"/>
+  <text x="614" y="236" font-weight="bold" fill="#51243c">Storage</text>
+  <g fill="#3a3a2c">
+    <text x="614" y="258">fs.c: inodes, directories, paths</text>
+    <text x="614" y="278">  direct + indirect + double indirect</text>
+  </g>
+  <rect x="614" y="288" width="260" height="26" rx="3" fill="#f7eaf1" stroke="#7a3b5c"/>
+  <text x="624" y="306" fill="#51243c">log.c: write-ahead log, CRC-32C commit</text>
+  <rect x="614" y="320" width="260" height="26" rx="3" fill="#f7eaf1" stroke="#7a3b5c"/>
+  <text x="624" y="338" fill="#51243c">bio.c: buffer cache, 160 x 4 KiB, LRU</text>
+  <rect x="614" y="352" width="260" height="26" rx="3" fill="#f7eaf1" stroke="#7a3b5c"/>
+  <text x="624" y="370" fill="#51243c">virtio_blk.c: legacy + modern MMIO</text>
+  <text x="614" y="398" fill="#3a3a2c">crash injection hook (SYS_crashctl)</text>
+
+  <!-- bottom row: platform -->
+  <rect x="34" y="430" width="852" height="118" rx="4" fill="#ffffff" stroke="#6b6b5a"/>
+  <text x="46" y="450" font-weight="bold" fill="#3a3a2c">Platform</text>
+  <g fill="#3a3a2c">
+    <text x="46" y="472">boot.S: arm64 Image header, EL2 to EL1, boot page tables, MMU on, then a break-before-make switch to the final tables</text>
+    <text x="46" y="492">fdt.c + platform.c: every device address and interrupt comes from the device tree (nothing is hard-coded)</text>
+    <text x="46" y="512">gic.c: GICv3 distributor/redistributors, virtual timer, SGIs to wake idle CPUs and halt on panic</text>
+    <text x="46" y="532">psci.c: CPU_ON for secondary CPUs, SYSTEM_OFF   -   uart.c + console.c: PL011, line editing</text>
+  </g>
+
+  <!-- boundary 2 -->
+  <line x1="20" y1="576" x2="900" y2="576" stroke="#333" stroke-dasharray="6 4"/>
+  <text x="34" y="594" fill="#333">MMIO, interrupts, HVC (PSCI)</text>
+
+  <!-- ===== hardware ===== -->
+  <rect x="20" y="604" width="430" height="80" rx="6" fill="#eaeaea" stroke="#555"/>
+  <text x="34" y="626" font-weight="bold" fill="#222">QEMU virt (TCG or HVF)</text>
+  <g fill="#222">
+    <text x="34" y="646">loads the Image at 0x40200000; UART 0x09000000</text>
+    <text x="34" y="664">GICv3 (gic-version=3); 32 virtio-mmio slots, legacy</text>
+    <text x="34" y="680">by default, modern with force-legacy=false</text>
+  </g>
+  <rect x="470" y="604" width="430" height="80" rx="6" fill="#eaeaea" stroke="#555"/>
+  <text x="484" y="626" font-weight="bold" fill="#222">LeapVM (Hypervisor.framework, Apple Silicon)</text>
+  <g fill="#222">
+    <text x="484" y="646">loads the Image at 0x40000000; UART 0x0c000000</text>
+    <text x="484" y="664">GICv3 from the framework; virtio-mmio at 0x0d000000,</text>
+    <text x="484" y="680">modern transport only</text>
+  </g>
+</svg>
