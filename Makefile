@@ -32,12 +32,24 @@ KLIB_C   := lib/string.c lib/fmt.c lib/crc32c.c
 KOBJS    := $(KERNEL_S:kernel/%.S=$(B)/kernel/%.S.o) $(KERNEL_C:kernel/%.c=$(B)/kernel/%.o) \
             $(KLIB_C:lib/%.c=$(B)/klib/%.o)
 
-.PHONY: all kernel clean qemu
+UCFLAGS  := $(COMMON) -Iinclude -Iuser
+UPROGS   := init sh echo cat ls wc grep mkdir rm ln kill ps sleep poweroff
+ULIB     := $(B)/user/lib/crt0.o $(B)/user/lib/syscalls.o $(B)/user/lib/ulib.o \
+            $(B)/user/klib/string.o $(B)/user/klib/fmt.o
+UELFS    := $(UPROGS:%=$(B)/user/%.elf)
+
+FS_BLOCKS ?= 16384
+FS_INODES ?= 1024
+
+.PHONY: all kernel user fs tools clean qemu
 .SECONDARY:
 
-all: kernel
+all: kernel fs
 
 kernel: $(B)/Image
+user: $(UELFS)
+fs: $(B)/fs.img
+tools: $(B)/host/mkfs
 
 $(B)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
@@ -54,6 +66,46 @@ $(B)/klib/%.o: lib/%.c
 $(B)/kernel.elf: $(KOBJS) kernel/kernel.ld
 	$(LLD) -T kernel/kernel.ld --no-pie -z noexecstack -o $@ $(KOBJS)
 
+# The first process's code is a user program embedded in the kernel image.
+$(B)/kernel/initcode.S.o: $(B)/user/initcode.bin
+
+$(B)/user/initcode.bin: user/initcode.S user/user.ld
+	@mkdir -p $(@D)
+	$(CLANG) $(KASFLAGS) -c -o $(B)/user/initcode.o $<
+	$(LLD) -T user/user.ld -o $(B)/user/initcode.elf $(B)/user/initcode.o
+	$(OBJCOPY) -O binary -j .text $(B)/user/initcode.elf $@
+
+# ---------------------------------------------------------------- user space
+$(B)/user/lib/%.o: user/lib/%.S
+	@mkdir -p $(@D)
+	$(CLANG) $(KASFLAGS) -c -o $@ $<
+
+$(B)/user/lib/%.o: user/lib/%.c
+	@mkdir -p $(@D)
+	$(CLANG) $(UCFLAGS) -c -o $@ $<
+
+$(B)/user/klib/%.o: lib/%.c
+	@mkdir -p $(@D)
+	$(CLANG) $(UCFLAGS) -c -o $@ $<
+
+$(B)/user/%.o: user/%.c
+	@mkdir -p $(@D)
+	$(CLANG) $(UCFLAGS) -c -o $@ $<
+
+$(B)/user/%.elf: $(B)/user/%.o $(ULIB) user/user.ld
+	$(LLD) -T user/user.ld -o $@ $(ULIB) $<
+
+# ---------------------------------------------------------------- host tools
+HOSTCFLAGS := -std=c11 -O2 -g -Wall -Wextra -Werror -Iinclude
+
+$(B)/host/mkfs: tools/mkfs.c include/wren/fsformat.h
+	@mkdir -p $(@D)
+	$(HOSTCC) $(HOSTCFLAGS) -o $@ tools/mkfs.c
+
+$(B)/fs.img: $(B)/host/mkfs $(UELFS) user/files/motd.txt
+	$(B)/host/mkfs -o $@ -s $(FS_BLOCKS) -i $(FS_INODES) /motd.txt=user/files/motd.txt \
+	  $(foreach p,$(UPROGS),/bin/$(p)=$(B)/user/$(p).elf)
+
 # The raw Image is what both QEMU (-kernel) and LeapVM (-k) load.
 $(B)/Image: $(B)/kernel.elf
 	$(OBJCOPY) -O binary $< $@
@@ -62,8 +114,13 @@ CPUS ?= 4
 MEM  ?= 256M
 QEMU_MACHINE := -machine virt,gic-version=3 -cpu cortex-a72 -smp $(CPUS) -m $(MEM)
 
-qemu: $(B)/Image
-	$(QEMU) $(QEMU_MACHINE) -nographic -kernel $(B)/Image
+# VIRTIO=modern selects the virtio-mmio version 2 transport (LeapVM only has that one).
+VIRTIO ?= legacy
+QEMU_VIRTIO := $(if $(filter modern,$(VIRTIO)),-global virtio-mmio.force-legacy=false,)
+QEMU_DISK = -drive file=$(B)/fs.img,if=none,format=raw,id=d0 -device virtio-blk-device,drive=d0 $(QEMU_VIRTIO)
+
+qemu: $(B)/Image $(B)/fs.img
+	$(QEMU) $(QEMU_MACHINE) -nographic -kernel $(B)/Image $(QEMU_DISK)
 
 clean:
 	rm -rf $(B)

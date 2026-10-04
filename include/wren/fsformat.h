@@ -24,8 +24,11 @@
 
 /* Largest number of distinct blocks one file-system operation may dirty,
  * and how many operations' worth of space the log reserves. */
-#define MAXOPBLOCKS  12
+#define MAXOPBLOCKS  16
 #define LOG_DATA_BLOCKS (MAXOPBLOCKS * 4)
+/* Largest write() that is one transaction (and therefore atomic): it may
+ * span 9 data blocks, plus the inode, 2 bitmap and 3 indirect blocks. */
+#define MAXWRITE_TXN (8 * BSIZE)
 
 struct superblock {
     uint32_t magic;

@@ -1,0 +1,4 @@
+Welcome to wren-os, a small multicore Unix-like kernel for AArch64.
+Try: ls /bin, cat /motd.txt | wc, grep -n wren /motd.txt, ps, usertests.
+Every program in /bin is a static ELF loaded by the kernel's exec.
+The file system has a write-ahead log, so it survives power cuts.
