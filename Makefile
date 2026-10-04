@@ -33,7 +33,7 @@ KOBJS    := $(KERNEL_S:kernel/%.S=$(B)/kernel/%.S.o) $(KERNEL_C:kernel/%.c=$(B)/
             $(KLIB_C:lib/%.c=$(B)/klib/%.o)
 
 UCFLAGS  := $(COMMON) -Iinclude -Iuser
-UPROGS   := init sh echo cat ls wc grep mkdir rm ln kill ps sleep poweroff usertests
+UPROGS   := init sh echo cat ls wc grep mkdir rm ln kill ps sleep poweroff usertests fswork
 ULIB     := $(B)/user/lib/crt0.o $(B)/user/lib/syscalls.o $(B)/user/lib/ulib.o \
             $(B)/user/klib/string.o $(B)/user/klib/fmt.o
 UELFS    := $(UPROGS:%=$(B)/user/%.elf)
@@ -42,14 +42,14 @@ FS_BLOCKS ?= 16384
 FS_INODES ?= 1024
 
 .PHONY: all kernel user fs tools clean qemu
-.SECONDARY:
+.PRECIOUS: $(B)/%.o $(B)/user/%.o $(B)/user/%.elf
 
-all: kernel fs
+all: kernel fs tools
 
 kernel: $(B)/Image
 user: $(UELFS)
 fs: $(B)/fs.img
-tools: $(B)/host/mkfs
+tools: $(B)/host/mkfs $(B)/host/fsck
 
 $(B)/kernel/%.o: kernel/%.c
 	@mkdir -p $(@D)
@@ -108,6 +108,10 @@ $(B)/host/mkfs: tools/mkfs.c include/wren/fsformat.h
 	$(HOSTCC) $(HOSTCFLAGS) -o $@ tools/mkfs.c
 
 UBINS := $(UPROGS:%=$(B)/user/bin/%)
+
+$(B)/host/fsck: tools/fsck.c lib/crc32c.c include/wren/fsformat.h
+	@mkdir -p $(@D)
+	$(HOSTCC) $(HOSTCFLAGS) -o $@ tools/fsck.c lib/crc32c.c
 
 $(B)/fs.img: $(B)/host/mkfs $(UBINS) user/files/motd.txt
 	$(B)/host/mkfs -o $@ -s $(FS_BLOCKS) -i $(FS_INODES) /motd.txt=user/files/motd.txt \
