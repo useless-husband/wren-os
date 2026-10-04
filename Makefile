@@ -205,7 +205,7 @@ venv: $(VENV)/bin/python
 $(VENV)/bin/python: requirements-dev.txt
 	python3 -m venv $(VENV)
 	$(VENV)/bin/pip install -q -r requirements-dev.txt
-	@touch $@
+	@touch -h $@
 
 system: all
 	WREN_SKIP_BUILD=1 $(PYTHON) -m pytest -v tests
