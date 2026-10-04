@@ -4,6 +4,7 @@
  *
  * Creates the root directory, /dev/console, and copies each host file to
  * the given path, creating parent directories as needed. */
+#define _POSIX_C_SOURCE 200809L /* strdup is POSIX, hidden by glibc under -std=c11 */
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
