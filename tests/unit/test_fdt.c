@@ -30,7 +30,7 @@ static void put32(uint32_t v)
 
 static void put_bytes(const void *p, size_t n)
 {
-    memcpy(st + st_len, p, n);
+    if (n) memcpy(st + st_len, p, n);   /* empty properties pass p == NULL */
     st_len += n;
     while (st_len & 3) st[st_len++] = 0;
 }

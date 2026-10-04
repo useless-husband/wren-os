@@ -46,9 +46,13 @@ int uart_getc(void)
     return (int)(mmio_read32(uart + DR) & 0xff);
 }
 
+/* Acknowledge first, then drain. QEMU's PL011 raises the receive interrupt
+ * only when the FIFO goes from empty to one byte; clearing it after the
+ * drain loop can erase the interrupt of a byte that arrived in between, and
+ * no further interrupt ever comes because the FIFO is never empty again. */
 void uart_intr(void)
 {
     int c;
-    while ((c = uart_getc()) >= 0) console_input((char)c);
     mmio_write32(uart + ICR, (1u << 4) | (1u << 6));
+    while ((c = uart_getc()) >= 0) console_input((char)c);
 }
