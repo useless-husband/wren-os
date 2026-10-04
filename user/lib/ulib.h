@@ -14,6 +14,9 @@
 #include "../../lib/kstring.h"
 #include "../../lib/fmt.h"
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
 /* system calls */
 int     fork(void);
 _Noreturn void exit(int status);

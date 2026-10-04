@@ -33,7 +33,7 @@ KOBJS    := $(KERNEL_S:kernel/%.S=$(B)/kernel/%.S.o) $(KERNEL_C:kernel/%.c=$(B)/
             $(KLIB_C:lib/%.c=$(B)/klib/%.o)
 
 UCFLAGS  := $(COMMON) -Iinclude -Iuser
-UPROGS   := init sh echo cat ls wc grep mkdir rm ln kill ps sleep poweroff
+UPROGS   := init sh echo cat ls wc grep mkdir rm ln kill ps sleep poweroff usertests
 ULIB     := $(B)/user/lib/crt0.o $(B)/user/lib/syscalls.o $(B)/user/lib/ulib.o \
             $(B)/user/klib/string.o $(B)/user/klib/fmt.o
 UELFS    := $(UPROGS:%=$(B)/user/%.elf)
@@ -95,6 +95,11 @@ $(B)/user/%.o: user/%.c
 $(B)/user/%.elf: $(B)/user/%.o $(ULIB) user/user.ld
 	$(LLD) -T user/user.ld -o $@ $(ULIB) $<
 
+# What goes on the disk: the same ELF without debug sections.
+$(B)/user/bin/%: $(B)/user/%.elf
+	@mkdir -p $(@D)
+	$(OBJCOPY) --strip-debug $< $@
+
 # ---------------------------------------------------------------- host tools
 HOSTCFLAGS := -std=c11 -O2 -g -Wall -Wextra -Werror -Iinclude
 
@@ -102,9 +107,11 @@ $(B)/host/mkfs: tools/mkfs.c include/wren/fsformat.h
 	@mkdir -p $(@D)
 	$(HOSTCC) $(HOSTCFLAGS) -o $@ tools/mkfs.c
 
-$(B)/fs.img: $(B)/host/mkfs $(UELFS) user/files/motd.txt
+UBINS := $(UPROGS:%=$(B)/user/bin/%)
+
+$(B)/fs.img: $(B)/host/mkfs $(UBINS) user/files/motd.txt
 	$(B)/host/mkfs -o $@ -s $(FS_BLOCKS) -i $(FS_INODES) /motd.txt=user/files/motd.txt \
-	  $(foreach p,$(UPROGS),/bin/$(p)=$(B)/user/$(p).elf)
+	  $(foreach p,$(UPROGS),/bin/$(p)=$(B)/user/bin/$(p))
 
 # The raw Image is what both QEMU (-kernel) and LeapVM (-k) load.
 $(B)/Image: $(B)/kernel.elf
