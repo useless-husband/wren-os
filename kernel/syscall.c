@@ -17,6 +17,7 @@ static const syscall_fn table[NSYSCALL] = {
     [SYS_uptime] = sys_uptime,     [SYS_procinfo] = sys_procinfo, [SYS_poweroff] = sys_poweroff,
     [SYS_getcpu] = sys_getcpu,     [SYS_lseek] = sys_lseek,       [SYS_crashctl] = sys_crashctl,
     [SYS_getppid] = sys_getppid,   [SYS_kstat] = sys_kstat,
+    [SYS_personality] = sys_personality,
 };
 
 void syscall_dispatch(struct trapframe *tf)

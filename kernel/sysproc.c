@@ -9,6 +9,7 @@
 #include "stats.h"
 #include <wren/errno.h>
 #include <wren/procinfo.h>
+#include <wren/syscall.h>
 
 SYSCALL(fork) { (void)tf; return proc_fork(); }
 SYSCALL(exit) { proc_exit((int)arg(tf, 0)); }
@@ -90,6 +91,19 @@ SYSCALL(kstat)
     case KSTAT_TIMER_HZ: return HZ;
     default: return -EINVAL;
     }
+}
+
+/* Set the PER_* flags and return the old ones; PER_QUERY only reads them.
+ * Only the calling process changes: there is nothing to lock. */
+SYSCALL(personality)
+{
+    uint64_t want = arg(tf, 0);
+    struct proc *p = myproc();
+    uint32_t old = p->personality;
+    if (want == PER_QUERY) return old;
+    if (want & ~(uint64_t)PER_MASK) return -EINVAL;
+    p->personality = (uint32_t)want;
+    return old;
 }
 
 SYSCALL(crashctl)

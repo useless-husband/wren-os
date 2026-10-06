@@ -331,6 +331,7 @@ int proc_fork(void)
         if (p->ofile[i]) np->ofile[i] = file_dup(p->ofile[i]);
     np->cwd = idup(p->cwd);
     strlcpy(np->name, p->name, sizeof np->name);
+    np->personality = p->personality;
     int pid = np->pid;
     spin_lock(&proc_lock);
     np->parent = p;

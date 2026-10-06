@@ -17,6 +17,7 @@ SYSCALL(close); SYSCALL(kill); SYSCALL(exec); SYSCALL(open); SYSCALL(mknod); SYS
 SYSCALL(fstat); SYSCALL(link); SYSCALL(mkdir); SYSCALL(chdir); SYSCALL(dup); SYSCALL(dup2);
 SYSCALL(getpid); SYSCALL(sbrk); SYSCALL(sleep); SYSCALL(uptime); SYSCALL(procinfo);
 SYSCALL(poweroff); SYSCALL(getcpu); SYSCALL(lseek); SYSCALL(crashctl); SYSCALL(getppid); SYSCALL(kstat);
+SYSCALL(personality);
 
 
 #endif

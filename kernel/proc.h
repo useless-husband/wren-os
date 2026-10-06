@@ -42,6 +42,7 @@ struct proc {
     struct file     *ofile[NOFILE];
     struct inode    *cwd;
     char             name[16];
+    uint32_t         personality;   /* PER_* flags: kept by fork and exec */
 };
 
 extern struct spinlock proc_lock;

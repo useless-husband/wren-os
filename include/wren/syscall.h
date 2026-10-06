@@ -33,7 +33,15 @@
 #define SYS_crashctl 27   /* test-only fault injection, see kernel/virtio_blk.c */
 #define SYS_getppid  28
 #define SYS_kstat    29   /* kernel counters for tests and benchmarks */
+#define SYS_personality 30 /* per-process flags kept across fork and exec */
 
-#define NSYSCALL     30
+#define NSYSCALL     31
+
+/* personality() flags.  Like Linux personality(2) (used by setarch), the
+ * word is inherited by fork and survives exec, so a launcher can set it
+ * and exec the real program.  PER_QUERY reads it without changing it. */
+#define PER_LEAKCHECK 0x1u   /* the user library reports leaked malloc blocks at exit */
+#define PER_MASK      0x1u
+#define PER_QUERY     0xffffffffu
 
 #endif
