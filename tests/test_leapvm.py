@@ -28,6 +28,10 @@ def test_leapvm_boot_and_tests(tmp_path, logdir):
         assert "ALL TESTS PASSED" in out, out[-3000:]
         out = m.run("stress 8", timeout=600)
         assert "STRESS OK" in out, out[-3000:]
+        out = m.run("gctest", timeout=600)
+        assert "ALL GC TESTS PASSED" in out, out[-3000:]
+        out = m.run("leakcheck leakdemo", timeout=60)
+        assert "leakcheck: 7 leaked blocks, 352 bytes" in out, out[-3000:]
         assert m.poweroff() == 0
     r = subprocess.run([str(BUILD / "host" / "fsck"), str(img)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr

@@ -34,7 +34,7 @@ jobs:
           qemu-system-aarch64 --version | head -1
       - name: Build kernel, user programs, disk image, host tools
         run: make all
-      - name: Host unit tests (AddressSanitizer + UBSan)
+      - name: Host unit tests incl. the GC core model check (AddressSanitizer + UBSan)
         run: make unit
       - name: Lint (strict warnings, clang static analyzer)
         run: make lint PYTHON=python
@@ -53,7 +53,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends clang lld llvm qemu-system-arm
       - run: python -m pip install -r requirements-dev.txt
       - run: make all
-      - name: "System tests: boot configurations, shell, usertests on 1 and 4 CPUs, fsck, SMP stress, crash consistency"
+      - name: "System tests: boot configurations, shell, usertests on 1 and 4 CPUs, fsck, SMP stress, crash consistency, garbage collector, leak checker"
         env:
           WREN_CRASH_RUNS: "60"
         run: make system PYTHON=python
