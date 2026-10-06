@@ -168,36 +168,80 @@ static void t_heap_bounded(void)
     check_eq(check_tree(g_tree), 511);
 }
 
-/* The only reference to the object is in x19 while gc_collect runs. */
-static __attribute__((noinline)) uintptr_t collect_holding_in_x19(uintptr_t hidden)
-{
-    uintptr_t out;
-    __asm__ volatile("eor  x19, %1, %2\n\t"
-                     "mov  %1, #0\n\t"
-                     "bl   gc_collect\n\t"
-                     "mov  %0, x19"
-                     : "=r"(out), "+r"(hidden)
-                     : "r"(KEY)
-                     : "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12",
-                       "x13", "x14", "x15", "x16", "x17", "x18", "x19", "x30", "v0", "v1", "v2", "v3",
-                       "v4", "v5", "v6", "v7", "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
-                       "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31", "cc", "memory");
-    return out;
-}
+/* collect_in_regs(h, key): load h[i] ^ key into x19-x28 and d8 (the
+ * only copies of those addresses anywhere), run gc_collect, then store the
+ * registers back into h[].  Every callee-saved register the root scan
+ * spills is covered, not just one the collector's own frames happen to
+ * save on the way down. */
+#define NREG 11
+void collect_in_regs(uintptr_t h[NREG], uint64_t k);
+__asm__("    .text\n"
+        "    .globl collect_in_regs\n"
+        "collect_in_regs:\n"
+        "    stp  x29, x30, [sp, #-112]!\n"
+        "    mov  x29, sp\n"
+        "    stp  x19, x20, [sp, #16]\n"
+        "    stp  x21, x22, [sp, #32]\n"
+        "    stp  x23, x24, [sp, #48]\n"
+        "    stp  x25, x26, [sp, #64]\n"
+        "    stp  x27, x28, [sp, #80]\n"
+        "    str  d8, [sp, #96]\n"
+        "    str  x0, [sp, #104]\n"
+        "    ldp  x19, x20, [x0, #0]\n"
+        "    ldp  x21, x22, [x0, #16]\n"
+        "    ldp  x23, x24, [x0, #32]\n"
+        "    ldp  x25, x26, [x0, #48]\n"
+        "    ldp  x27, x28, [x0, #64]\n"
+        "    ldr  x9, [x0, #80]\n"
+        "    eor  x19, x19, x1\n"
+        "    eor  x20, x20, x1\n"
+        "    eor  x21, x21, x1\n"
+        "    eor  x22, x22, x1\n"
+        "    eor  x23, x23, x1\n"
+        "    eor  x24, x24, x1\n"
+        "    eor  x25, x25, x1\n"
+        "    eor  x26, x26, x1\n"
+        "    eor  x27, x27, x1\n"
+        "    eor  x28, x28, x1\n"
+        "    eor  x9, x9, x1\n"
+        "    fmov d8, x9\n"
+        "    mov  x9, #0\n"
+        "    mov  x1, #0\n"
+        "    bl   gc_collect\n"
+        "    ldr  x0, [sp, #104]\n"
+        "    stp  x19, x20, [x0, #0]\n"
+        "    stp  x21, x22, [x0, #16]\n"
+        "    stp  x23, x24, [x0, #32]\n"
+        "    stp  x25, x26, [x0, #48]\n"
+        "    stp  x27, x28, [x0, #64]\n"
+        "    fmov x9, d8\n"
+        "    str  x9, [x0, #80]\n"
+        "    ldp  x19, x20, [sp, #16]\n"
+        "    ldp  x21, x22, [sp, #32]\n"
+        "    ldp  x23, x24, [sp, #48]\n"
+        "    ldp  x25, x26, [sp, #64]\n"
+        "    ldp  x27, x28, [sp, #80]\n"
+        "    ldr  d8, [sp, #96]\n"
+        "    ldp  x29, x30, [sp], #112\n"
+        "    ret\n");
 
 static void t_register_root(void)
 {
-    /* control: without the register the object is reclaimed */
-    uintptr_t h = make_hidden(1);
+    uintptr_t h[NREG];
+    /* control: without the registers the objects are reclaimed */
+    for (int i = 0; i < NREG; i++) h[i] = make_hidden((uint64_t)i);
     clean_collect();
-    check(!live(h));
-    /* with it, the object survives with its contents */
-    h = make_hidden(2);
+    for (int i = 0; i < NREG; i++) check(!live(h[i]));
+    /* held only in x19-x28 and d8, they survive with their contents */
+    for (int i = 0; i < NREG; i++) h[i] = make_hidden(100 + (uint64_t)i);
     scrub();
-    struct node *n = (struct node *)collect_holding_in_x19(h);
-    check(n == SHOW(h));
-    check(node_ok(n));
-    check_eq(n->id, 2);
+    collect_in_regs(h, KEY);
+    for (int i = 0; i < NREG; i++) {
+        struct node *n = (struct node *)h[i];
+        if (!node_ok(n) || n->id != 100 + (uint64_t)i)
+            fail("object held in %s was not kept", i < 10 ? (const char *[]){"x19", "x20", "x21", "x22",
+                 "x23", "x24", "x25", "x26", "x27", "x28"}[i] : "d8");
+    }
 }
 
 static __attribute__((noinline)) void hold_on_stack(uintptr_t h)

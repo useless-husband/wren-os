@@ -96,6 +96,33 @@ MUTANTS = [
         "test": GUEST + ["--cpus", "2", "--expect", "ALL TESTS PASSED", "--timeout", "90", "usertests pipe_bulk"],
         "test_name": "usertests pipe_bulk (hang -> timeout)",
     },
+    {
+        "name": "gc-no-register-spill",
+        "what": "the root scan stores zeros instead of x27 and x28, so pointers held only there are missed",
+        "file": "user/lib/regs.S",
+        "old": "    stp     x27, x28, [sp, #80]\n",
+        "new": "    stp     xzr, xzr, [sp, #16]\n",
+        "test": GUEST + ["--cpus", "1", "--expect", "ALL GC TESTS PASSED", "gctest register_root"],
+        "test_name": "gctest register_root (1 cpu)",
+    },
+    {
+        "name": "gc-no-overflow-rescan",
+        "what": "after a mark-stack overflow the collector does not rescan, so children of dropped objects die",
+        "file": "user/lib/gc.c",
+        "old": "    while (h->overflow) {",
+        "new": "    while (0 && h->overflow) {",
+        "test": ["sh", "-c", "make -s build/host/test_gc && build/host/test_gc"],
+        "test_name": "host test_gc (model check, 4-entry mark stack)",
+    },
+    {
+        "name": "leak-no-transitive-marking",
+        "what": "the leak checker marks blocks the roots point to but not the blocks those point to",
+        "file": "user/lib/malloc.c",
+        "old": "    while (s->sp) {",
+        "new": "    while (0 && s->sp) {",
+        "test": GUEST + ["--cpus", "1", "--expect", "leakcheck: no leaks; 6 blocks", "leakcheck leakdemo clean"],
+        "test_name": "leakcheck leakdemo clean (1 cpu)",
+    },
 ]
 
 
@@ -122,7 +149,7 @@ def run_mutant(m: dict) -> dict:
     elapsed = time.monotonic() - t0
     out = r.stdout + r.stderr
     evidence = ""
-    for key in ("runs consistent", "PANIC", "FAIL", "FAILED", "GuestTimeout", "inconsisten", "matches no allowed state",
+    for key in ("runs consistent", "PANIC", "FAIL", "FAILED", "mismatches", "leakcheck: ", "GuestTimeout", "inconsisten", "matches no allowed state",
                 "fsck: ", "corrupted", "segmentation"):
         i = out.find(key)
         if i >= 0:
