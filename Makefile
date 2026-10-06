@@ -4,12 +4,13 @@
 #   make qemu           boot to the shell under QEMU (CPUS=4, VIRTIO=legacy|modern, ACCEL=tcg|hvf)
 #   make leapvm         boot to the shell under LeapVM (macOS; LEAPVM=path/to/leapvm)
 #   make test           unit tests + all system tests (what CI runs)
-#   make unit           host unit tests only (FDT parser, buddy allocator, ELF checks, lib)
+#   make unit           host unit tests only (FDT parser, buddy allocator, ELF checks, lib, GC core)
 #   make system         QEMU system tests (pytest): boot, shell, usertests on 1 and 4 CPUs, ...
 #   make crash          crash-consistency test, 300 seeded power cuts (CRASH_RUNS=...)
 #   make stress         60 s SMP stress on 4 CPUs
 #   make mutants        check that 8 deliberate bugs are each caught by a test
 #   make bench          micro-benchmarks (ACCEL=tcg|hvf, or HV=leapvm)
+#   make gcbench        garbage collector vs malloc/free, and collection pauses (same options)
 #   make lint           strict warnings, clang static analyzer, Python syntax
 #
 # Every path is relative on purpose: the checkout may live in a directory
@@ -47,8 +48,10 @@ KLIB_C   := lib/string.c lib/fmt.c lib/crc32c.c
 KOBJS    := $(KERNEL_S:kernel/%.S=$(B)/kernel/%.S.o) $(KERNEL_C:kernel/%.c=$(B)/kernel/%.o) \
             $(KLIB_C:lib/%.c=$(B)/klib/%.o)
 
-UPROGS   := init sh echo cat ls wc grep mkdir rm ln kill ps sleep poweroff usertests fswork stress bench
-ULIB     := $(B)/user/lib/crt0.o $(B)/user/lib/syscalls.o $(B)/user/lib/ulib.o \
+UPROGS   := init sh echo cat ls wc grep mkdir rm ln kill ps sleep poweroff usertests fswork stress bench \
+            gcdemo gctest gcbench leakdemo leakcheck
+ULIB     := $(B)/user/lib/crt0.o $(B)/user/lib/syscalls.o $(B)/user/lib/ulib.o $(B)/user/lib/malloc.o \
+            $(B)/user/lib/regs.o $(B)/user/lib/roots.o $(B)/user/lib/gc.o $(B)/user/lib/gc_wren.o \
             $(B)/user/klib/string.o $(B)/user/klib/fmt.o
 UELFS    := $(UPROGS:%=$(B)/user/%.elf)
 UBINS    := $(UPROGS:%=$(B)/user/bin/%)
@@ -56,7 +59,7 @@ UBINS    := $(UPROGS:%=$(B)/user/bin/%)
 FS_BLOCKS ?= 16384
 FS_INODES ?= 1024
 
-.PHONY: all kernel user fs tools clean qemu leapvm test unit system crash stress mutants bench lint venv
+.PHONY: all kernel user fs tools clean qemu leapvm test unit system crash stress mutants bench gcbench lint venv
 .PRECIOUS: $(B)/%.o $(B)/user/%.o $(B)/user/%.elf
 
 all: kernel fs tools
@@ -179,16 +182,17 @@ comma      := ,
 SANITIZE   ?= $(if $(filter Darwin,$(shell uname -s)),undefined,address$(comma)undefined)
 UNITFLAGS  := -std=c11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Iinclude -fno-omit-frame-pointer \
               -fsanitize=$(SANITIZE) -fno-sanitize-recover=undefined
-UNIT_BINS  := $(B)/host/test_lib $(B)/host/test_fdt $(B)/host/test_buddy $(B)/host/test_elf
+UNIT_BINS  := $(B)/host/test_lib $(B)/host/test_fdt $(B)/host/test_buddy $(B)/host/test_elf $(B)/host/test_gc
 
 $(B)/host/test_lib: tests/unit/test_lib.c lib/crc32c.c lib/fmt.c
 $(B)/host/test_fdt: tests/unit/test_fdt.c kernel/fdt.c kernel/platform.c lib/fmt.c
 $(B)/host/test_buddy: tests/unit/test_buddy.c kernel/buddy.c lib/fmt.c
 $(B)/host/test_elf: tests/unit/test_elf.c kernel/elf.c
+$(B)/host/test_gc: tests/unit/test_gc.c user/lib/gc.c user/lib/gc.h
 $(UNIT_BINS): tests/unit/check.h
 	@mkdir -p $(@D)
 	@echo "  HOSTCC  $@ ($(SANITIZE) sanitizer)"
-	$(Q)$(HOSTCC) $(UNITFLAGS) -o $@ $(filter %.c,$^)
+	$(Q)$(HOSTCC) $(UNITFLAGS) -DGC_HOST -o $@ $(filter %.c,$^)
 
 # QEMU's own device tree for the machine we test on: generated, not committed.
 $(B)/qemu-virt.dtb:
@@ -200,6 +204,7 @@ unit: $(UNIT_BINS) $(B)/qemu-virt.dtb $(UELFS)
 	$(B)/host/test_fdt $(B)/qemu-virt.dtb
 	$(B)/host/test_buddy
 	$(B)/host/test_elf $(UELFS)
+	$(B)/host/test_gc
 
 venv: $(VENV)/bin/python
 $(VENV)/bin/python: requirements-dev.txt
@@ -225,6 +230,9 @@ mutants: all
 HV ?= qemu
 bench: all
 	$(PYTHON) tests/bench.py --hypervisor $(HV) --accel $(ACCEL)
+
+gcbench: all
+	$(PYTHON) tests/gcbench.py --hypervisor $(HV) --accel $(ACCEL)
 
 LINTWARN := -Wshadow -Wpointer-arith -Wundef -Wvla -Wformat=2 -Wnull-dereference \
             -Wmissing-prototypes -Wstrict-prototypes -Wimplicit-fallthrough -Wunreachable-code
