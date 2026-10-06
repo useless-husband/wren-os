@@ -216,3 +216,11 @@ torn write). It is a test hook, documented as such; normal programs never call i
 Signals, threads, `mmap`, sockets, permissions, `rename`, symbolic links, timestamps, a network
 driver, kernel preemption, per-CPU run queues, returning slab pages, RAM above 4 GiB. Each would add
 a subsystem without deepening the ones the course-style project is about.
+
+## 9. User-space memory tools
+
+The conservative garbage collector and the malloc leak checker live in the user library and need
+one small kernel addition, `personality()`, so that `leakcheck` can switch the report on across
+`exec`. Their roots, heap layout, pointer-identification policy, tests, measurements and limits
+are in [GC.md](GC.md).
+

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased (branch feat/gc)
+
+- User library: a conservative mark-sweep garbage collector (`gc_malloc`, `gc_collect`,
+  `gc_get_stats`): roots from the callee-saved registers, the stack and `.data`/`.bss`; a lazily
+  backed arena above 4 GiB with 16 size classes and page runs for large objects; side bitmaps;
+  switchable interior-pointer recognition; mark-stack overflow recovery; threshold trigger.
+- User library: `malloc` moved to `malloc.c` and records allocation sites; double frees are reported;
+  `leak_check()` reports unreachable blocks with size and site. `leakcheck prog` runs any program
+  with the report at exit.
+- Kernel: `personality()` system call, a flags word kept across fork and exec (27 lines).
+- Programs: `gcdemo`, `gctest`, `gcbench`, `leakdemo`, `leakcheck`.
+- Tests: host model check of the collector core; `gctest` on 1 and 4 CPUs; bounded-heap, leak-report
+  and inheritance system tests; GC tests on LeapVM; three new mutants (11/11 caught); `make gcbench`.
+- Docs: docs/GC.md; README sections; a new chapter in the beginner's guide.
+
 ## 0.1.0 - 2026-10-04
 
 First complete version.

@@ -5,13 +5,14 @@
 （我自己寫的 Apple Silicon 虛擬機）；所有裝置都是從 device tree 查出來的。
 它有支援管線、重新導向和背景工作的 shell，最多可用 8 顆 CPU，
 檔案存在有預寫日誌（write-ahead log）的硬碟上，斷電後檔案系統仍然一致（用 600 次模擬斷電測過）。
+它的 C 函式庫還有一個保守式垃圾回收器和一個記憶體外洩偵測器，會掃描程式的暫存器、堆疊和全域變數。
 
 這是模仿 MIT（6.1810，xv6）、哈佛（CS 161，Chickadee）、耶魯（CPSC 422，mCertiKOS）
 作業系統課程的**學習用重做**，不是新點子，也和這些課程沒有關係。程式碼都是自己寫的，
 設計借用了這些系統的知名做法，出處列在[相關專案](#相關專案)。
 
 [English README](README.md) · [課程式期末報告](docs/report.md) · [設計說明](docs/DESIGN.md) ·
-[給初學者的導讀](docs/導讀.zh-TW.md)
+[垃圾回收器設計（英文）](docs/GC.md) · [給初學者的導讀](docs/導讀.zh-TW.md)
 
 ```
 wren-os: booting on "linux,dummy-virt", image at 0x40200000, 4 cpu(s) in the device tree
@@ -58,8 +59,9 @@ wren-os: power off
 | 行程 | `fork exec exit waitpid kill getpid getppid sbrk sleep uptime`、pipe、檔案描述符、`dup`/`dup2`、`lseek`、`ps` |
 | 儲存 | 支援兩種 virtio-mmio 介面的 virtio-blk 驅動（QEMU 預設的 legacy，和 LeapVM 唯一的 modern）；buffer cache；有直接、單層間接、雙層間接區塊和目錄的 inode 檔案系統；用 CRC-32C 保護確認紀錄的預寫日誌；主機端 `mkfs` 和 `fsck` |
 | 使用者程式 | 小型 libc；支援 `|`、`<` `>` `>>`、`&`、`;` 的 `sh`；`ls cat echo grep wc mkdir rm ln kill ps sleep poweroff`；測試程式 `usertests`、`stress`、`fswork`、`bench` |
+| 記憶體工具 | 保守式 mark-sweep 垃圾回收器（`gc_malloc`）：按大小分類的頁、標記點陣圖、認得指向物件中間的指標、標記堆疊滿了也不會漏；`malloc` 的外洩偵測器（`leakcheck 程式` 或呼叫 `leak_check()`），列出沒人指到的區塊和配置它的位置；示範程式 `gcdemo`、`leakdemo`，測試 `gctest`，效能 `gcbench` |
 
-核心約 5,700 行 C 和組合語言，使用者程式 2,500 行，主機工具 500 行，測試 1,800 行。
+核心約 5,700 行 C 和組合語言，使用者程式 4,200 行，主機工具 500 行，測試 2,400 行。
 
 ## 運作方式
 
@@ -83,21 +85,51 @@ wren-os: power off
 細節：[docs/DESIGN.md](docs/DESIGN.md)（決策和取捨）、[docs/report.md](docs/report.md)
 （開機流程、記憶體配置、例外路徑、鎖、日誌、結果）。
 
+## 垃圾回收器和外洩偵測器
+
+```
+$ gcdemo 400
+round   50:   7 collections, heap   61 pages (peak   80), live 48 KiB, 1 MiB allocated so far
+...
+round  400:  61 collections, heap   80 pages (peak   81), live 64 KiB, 15 MiB allocated so far
+gcdemo: 400 rounds, 15 MiB allocated, peak heap 324 KiB, 61 collections, pause mean 79 us max 558 us
+GCDEMO OK (peak 80 pages after round 100, 81 at the end)
+$ leakcheck leakdemo
+leakdemo: planted 7 leaked blocks, 352 bytes
+leak: 32 bytes at 0x161b0, allocated from pc 0x13eac
+leak: 48 bytes at 0x161e0, allocated from pc 0x13ef8
+...
+leakcheck: 7 leaked blocks, 352 bytes; 6 blocks, 304 bytes still reachable
+$ leakcheck leakdemo clean
+leakdemo: no leaks planted
+leakcheck: no leaks; 6 blocks, 304 bytes still reachable
+```
+
+用 `gc_malloc` 拿的記憶體永遠不必 `free`。根（root）是：callee-saved 暫存器（用幾行組合語言存到堆疊上）、
+從目前的 `sp` 到 crt0 記下的堆疊頂端、以及連結器符號標出的 `.data`/`.bss`。這些地方和所有被找到的物件裡，
+每個對齊的字只要指進某個活著的物件（指到中間也算），那個物件就留下。物件放在 4 GiB 以上、延遲配置的
+256 MiB 區域，所以任何 32 位元的整數都不可能被誤認成指標。外洩偵測器對 `malloc` 的 heap 跑同一套標記；
+`leakcheck` 設定一個 exec 之後還在的 `personality()` 旗標，這是唯一的核心修改（27 行）。在建樹的
+效能測試（`make gcbench`，1 顆 vCPU，Hypervisor.framework）裡，`gc_malloc` 每個節點 12-14 ns，
+`malloc` + `free` 是 9 ns；每 MiB 活資料暫停約 140 us。設計、測試、數字和限制：[docs/GC.md](docs/GC.md)。
+
 ## 驗證
 
 除了註明的以外，下面全部由 `make test` 執行（CI 每次 push 都會跑）。
 
 | 測試 | 內容 | 結果（本機） |
 |---|---|---|
-| 主機單元測試（`make unit`） | FDT 解析器：和 LeapVM 完全相同的樹、QEMU 自己產生的 DTB、20,000 個被破壞的檔案；buddy 分配器 40,000 次隨機操作的模型檢查；ELF 檢查：每條規則一個案例、50,000 個亂改檔頭和所有真實程式；printf 與 CRC-32C。用 UBSan 編譯（Linux 上加 ASan） | 4 個程式，115,104 項檢查，0 失敗 |
+| 主機單元測試（`make unit`） | FDT 解析器：和 LeapVM 完全相同的樹、QEMU 自己產生的 DTB、20,000 個被破壞的檔案；buddy 分配器 40,000 次隨機操作的模型檢查；ELF 檢查：每條規則一個案例、50,000 個亂改檔頭和所有真實程式；printf 與 CRC-32C；垃圾回收器核心對照精確的可達性模型做模型檢查（3 個種子 × 3 種設定 × 20,000 次操作，含只有 4 格的標記堆疊）。用 UBSan 編譯（Linux 上加 ASan） | 5 個程式，429,763 項檢查，0 失敗 |
 | 開機組合 | 1、4、8 顆 CPU；legacy 和 modern virtio；從 EL2 進入（`virtualization=on`） | 5/5 |
 | Shell | 4 個行程的管線、重新導向、背景工作和完成通知、`kill`、`ps`、`ln`、`rm` | 通過 |
 | `usertests`，1 和 4 顆 CPU（8 顆手動跑過） | 40 項在 wren-os 裡跑的測試：fork/wait/孤兒行程、行程表用光、kill、搶占、exec 錯誤、`sbrk`、延遲配置、記憶體不足後恢復、COW 隔離和共享、堆疊成長和溢位、空指標/改程式碼/執行 heap/碰核心位址、傳壞指標給系統呼叫、記憶體外洩、切換後浮點暫存器正確、用到多顆 CPU、雙層間接範圍的大檔案、空洞、目錄、連結、刪除開啟中的檔案、多個行程同時寫檔、fd 上限、pipe | 兩種都 40/40 |
 | `fsck` 和日誌重做 | 新映像檔乾淨；抓得到外洩的區塊、使用中卻標成空的區塊、錯的連結數、被兩個檔案共用的區塊、指到資料區外的指標、指向空 inode 的目錄項；重做已確認的日誌、忽略未確認的；核心本身也會重做手寫的已確認交易、丟掉檢查碼錯的 | 10/10 |
+| `gctest`，1 和 4 顆 CPU | 13 項用真實根的回收器測試：多次回收後活物件完好、垃圾被回收、300 輪內 heap 不再長大、只存在 x19-x28/d8、堆疊或全域變數裡的指標、指到中間和剛好超過結尾的指標、循環、fork、固定種子的隨機圖、大物件 | 兩種都 13/13 |
+| `gcdemo`、外洩偵測 | 一個和四個同時回收的行程在 4 顆 CPU 上 heap 都有上限；`leakcheck leakdemo` 正好列出故意放的 7 個區塊，每個都從 ELF 符號表對回製造它的函式，修好的版本什麼都不報；`leakcheck sh` 之後旗標會被繼承 | 2/2 |
 | 多核心壓力測試 | 4 顆 CPU 上 12 個行程同時 fork、exec、pipe、寫檔，每個位元組都檢查；之後硬碟要通過 `fsck` | CI 跑 20 秒；60 秒版本：56,096 次經過檢查的操作、1,095,310 次 context switch、0 頁外洩；另在 LeapVM 上用 8 顆 CPU、24 個行程跑過 |
 | 斷電一致性 | 見下方 | 600/600 一致 |
-| LeapVM（只在 macOS，CI 會跳過並說明原因） | 同一個 Image 在 LeapVM 上用 4 顆 CPU 開機，跑 `usertests -q` 和 `stress`；再在 LeapVM 上製造斷電、在 LeapVM 上恢復、用 `fsck` 檢查 | 2/2 |
-| 突變測試（`make mutants`） | 8 個故意放的 bug，每個都要讓某個測試失敗 | 8/8 抓到 |
+| LeapVM（只在 macOS，CI 會跳過並說明原因） | 同一個 Image 在 LeapVM 上用 4 顆 CPU 開機，跑 `usertests -q`、`stress`、`gctest` 和 `leakcheck leakdemo`；再在 LeapVM 上製造斷電、在 LeapVM 上恢復、用 `fsck` 檢查 | 2/2 |
+| 突變測試（`make mutants`） | 11 個故意放的 bug，每個都要讓某個測試失敗 | 11/11 抓到 |
 
 **斷電一致性**（`make crash`，[tests/crash.py](tests/crash.py)）。工作程式 `fswork` 會建立、附加、
 覆寫、截斷、連結、刪除檔案，建立和刪除目錄，每個動作前印 `OP k ...`、做完印 `OK k`。
@@ -110,8 +142,8 @@ wren-os: power off
 其中 274 輪開機時有已確認的交易需要重做）。
 
 **突變測試**（[docs/mutants.md](docs/mutants.md)）：拿掉 `fork` 的 TLB 清除、記憶體分配器的鎖、
-日誌的確認紀錄、日誌重做、COW 參考計數、浮點暫存器保存、間接區塊的釋放、pipe 的喚醒，
-每一個都會讓指定的測試失敗。
+日誌的確認紀錄、日誌重做、COW 參考計數、浮點暫存器保存、間接區塊的釋放、pipe 的喚醒、
+回收器保存暫存器時漏掉兩個、標記堆疊溢位後不重掃、外洩偵測器不往下追，每一個都會讓指定的測試失敗。
 
 ## 效能
 
@@ -155,6 +187,7 @@ make crash           # 300 次固定種子的斷電測試（CRASH_RUNS=...）
 make stress          # 4 顆 CPU 壓力測試 60 秒，之後跑 fsck
 make mutants         # 突變測試
 make bench           # 效能量測
+make gcbench         # gc_malloc 和 malloc/free 比較、回收暫停時間（一樣可加 ACCEL=/HV=）
 make lint            # 嚴格警告和 clang 靜態分析
 ```
 
@@ -176,6 +209,9 @@ make lint            # 嚴格警告和 clang 靜態分析
   但沒有測試會打亂順序。
 - macOS 27 上 AddressSanitizer 的執行環境連空程式都會卡住，所以本機單元測試只用 UBSan；
   Linux 上的 CI 兩個都用。
+- 垃圾回收器不做壓縮（compaction），每次都停下程式標記整個 heap（沒有並行、增量或分代回收）。
+  因為是保守式，可能被某個剛好像指標的字留住垃圾，也看不到用運算藏起來、沒對齊、或只存在 `malloc`
+  記憶體裡的指標。詳見 [docs/GC.md](docs/GC.md#9-limits)。
 - 只在模擬和虛擬化的硬體上測過，沒有在實體開發板上跑過。
 
 ## 相關專案
@@ -200,6 +236,11 @@ make lint            # 嚴格警告和 clang 靜態分析
   [raspberry-pi-os](https://github.com/s-matyukevich/raspberry-pi-os) 教學。它們大多是把 xv6
   移植到 AArch64 或是課程骨架；這個是獨立實作。據我所知，「一個 Image 跑兩種虛擬機」加上
   「對日誌做斷電注入測試」在這些專案裡不常見，但用到的技術本身都是標準做法。
+- **Boehm-Demers-Weiser 回收器**（[bdwgc](https://github.com/ivmai/bdwgc)）：垃圾回收器的範本
+  （保守式掃描、按大小分類的頁加旁邊的點陣圖、認得中間指標、標記堆疊溢位的補救）。
+  **Valgrind memcheck** 和 **LeakSanitizer**：外洩偵測「結束時做可達性掃描」的範本，它們報得多很多
+  （間接外洩、完整的呼叫堆疊）。**史丹佛 CS140E/CS240LX**：期末專題包含在學生自己的作業系統上做
+  Boehm 式回收器和外洩偵測器，這裡就是在 wren-os 上重做這件事。
 
 ## 目錄
 
@@ -207,11 +248,12 @@ make lint            # 嚴格警告和 clang 靜態分析
 kernel/          核心（boot.S、entry.S、switch.S 和 C 檔；見 docs/report.md 第 2 節）
 include/wren/    和使用者程式、主機工具共用的介面（系統呼叫編號、硬碟格式）
 lib/             核心、使用者程式、工具共用的字串、printf、CRC-32C
-user/            libc、init、sh、工具程式、usertests、stress、fswork、bench
+user/            libc（user/lib：malloc + 外洩偵測、gc.c 回收器）、init、sh、工具程式、
+                 usertests、stress、fswork、bench、gcdemo、gctest、gcbench、leakdemo、leakcheck
 tools/           主機端 mkfs 和 fsck
 tests/           Python 測試工具（透過序列埠操作 QEMU/LeapVM）、系統測試、斷電和突變測試；
                  tests/unit/ 是主機端 C 單元測試
-docs/            報告、設計說明、效能、突變測試結果、初學者導讀
+docs/            報告、設計說明、垃圾回收器設計、效能、突變測試結果、初學者導讀
 ```
 
 ## 授權
