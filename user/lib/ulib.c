@@ -1,4 +1,5 @@
 #include "ulib.h"
+#include <wren/syscall.h>
 
 /* printf builds the whole message, then issues one write(), so lines
  * from concurrent processes do not interleave mid-line. */
@@ -155,84 +156,11 @@ uint64_t now_ns(void)
     return c / f * 1000000000ull + c % f * 1000000000ull / f;
 }
 
-/* ---- heap: first-fit free list with coalescing, grown with sbrk ---- */
-
-struct block {
-    size_t        size;    /* bytes of payload */
-    struct block *next;    /* next free block (address order), when free */
-};
-#define HDR sizeof(struct block)
-static struct block *free_list;
-
-static void insert_free(struct block *b)
+/* exit() runs the leak checker first when the process was started under
+ * leakcheck (the PER_LEAKCHECK personality flag survives exec); _exit()
+ * is the bare system call. */
+_Noreturn void exit(int status)
 {
-    struct block *prev = NULL, *cur = free_list;
-    while (cur && cur < b) {
-        prev = cur;
-        cur = cur->next;
-    }
-    b->next = cur;
-    if (prev) prev->next = b;
-    else free_list = b;
-    if (cur && (char *)b + HDR + b->size == (char *)cur) {         /* merge with the next block */
-        b->size += HDR + cur->size;
-        b->next = cur->next;
-    }
-    if (prev && (char *)prev + HDR + prev->size == (char *)b) {   /* and with the previous one */
-        prev->size += HDR + b->size;
-        prev->next = b->next;
-    }
-}
-
-void *malloc(size_t n)
-{
-    if (n == 0) n = 1;
-    n = (n + 15) & ~(size_t)15;
-    for (struct block **pp = &free_list; *pp; pp = &(*pp)->next) {
-        struct block *b = *pp;
-        if (b->size < n) continue;
-        if (b->size >= n + HDR + 32) {           /* split */
-            struct block *rest = (struct block *)((char *)b + HDR + n);
-            rest->size = b->size - n - HDR;
-            rest->next = b->next;
-            b->size = n;
-            *pp = rest;
-        } else {
-            *pp = b->next;
-        }
-        return (char *)b + HDR;
-    }
-    size_t grow = n + HDR < 65536 ? 65536 : n + HDR;
-    char *p = sbrk((long)grow);
-    if (sbrk_failed(p)) return NULL;
-    struct block *b = (struct block *)p;
-    b->size = grow - HDR;
-    insert_free(b);
-    return malloc(n);
-}
-
-void free(void *ptr)
-{
-    if (ptr) insert_free((struct block *)((char *)ptr - HDR));
-}
-
-void *calloc(size_t n, size_t size)
-{
-    if (size && n > (size_t)-1 / size) return NULL;
-    void *p = malloc(n * size);
-    if (p) memset(p, 0, n * size);
-    return p;
-}
-
-void *realloc(void *ptr, size_t n)
-{
-    if (!ptr) return malloc(n);
-    struct block *b = (struct block *)((char *)ptr - HDR);
-    if (b->size >= n) return ptr;
-    void *q = malloc(n);
-    if (q) {
-        memcpy(q, ptr, b->size);
-        free(ptr);
-    }
-    return q;
+    if (personality(PER_QUERY) & PER_LEAKCHECK) leak_check();
+    _exit(status);
 }

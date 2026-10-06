@@ -16,7 +16,9 @@ SECTIONS
     . = ALIGN(4096);
     .rodata : { *(.rodata .rodata.*) } :rodata
     . = ALIGN(4096);
+    __data_start = .;          /* [__data_start, _end): writable globals, scanned as GC roots */
     .data : { *(.data .data.*) } :data
     .bss : { *(.bss .bss.*) *(COMMON) } :data
+    _end = .;
     /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) }
 }

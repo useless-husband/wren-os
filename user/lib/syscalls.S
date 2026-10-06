@@ -12,7 +12,7 @@
 .endm
 
 STUB fork, SYS_fork
-STUB exit, SYS_exit
+STUB _exit, SYS_exit
 STUB waitpid, SYS_waitpid
 STUB pipe, SYS_pipe
 STUB read, SYS_read
@@ -40,3 +40,4 @@ STUB lseek, SYS_lseek
 STUB crashctl, SYS_crashctl
 STUB getppid, SYS_getppid
 STUB kstat, SYS_kstat
+STUB personality, SYS_personality

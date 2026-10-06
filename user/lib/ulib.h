@@ -19,7 +19,8 @@
 
 /* system calls */
 int     fork(void);
-_Noreturn void exit(int status);
+_Noreturn void exit(int status);    /* runs the leak report under leakcheck */
+_Noreturn void _exit(int status);   /* the bare system call */
 int     waitpid(int pid, int *status, int options);
 int     pipe(int fds[2]);
 long    read(int fd, void *buf, size_t n);
@@ -47,6 +48,7 @@ long    lseek(int fd, long off, int whence);
 int     crashctl(int op, long a1, long a2);
 int     getppid(void);
 long    kstat(int which);
+long    personality(unsigned long flags);   /* PER_* in <wren/syscall.h>; returns the old flags */
 
 static inline int wait(int *status) { return waitpid(-1, status, 0); }
 static inline bool sbrk_failed(void *p) { return (intptr_t)p < 0 && (intptr_t)p > -4096; }
@@ -65,6 +67,12 @@ void *malloc(size_t n);
 void *calloc(size_t n, size_t size);
 void *realloc(void *p, size_t n);
 void  free(void *p);
+
+/* leak checker (malloc.c): report every allocated block that no pointer in
+ * the registers, stack, globals or other reachable blocks refers to, with
+ * its size and allocation site, on fd 2.  Returns the number of leaked
+ * blocks.  `leakcheck prog` runs it automatically when prog exits. */
+long  leak_check(void);
 
 /* misc */
 int      atoi(const char *s);
