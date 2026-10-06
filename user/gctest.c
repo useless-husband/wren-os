@@ -138,6 +138,7 @@ static void t_unreachable_reclaimed(void)
     make_garbage(10000);             /* 10000 list nodes + 511 tree nodes */
     clean_collect();
     uint64_t freed = stats().freed_objects - before;
+    printf("    %lu of 10511 garbage objects reclaimed\n", (unsigned long)freed);
     if (freed < 10400) fail("only %lu of 10511 garbage objects reclaimed", (unsigned long)freed);
     check(stats().live_objects < 100);
 }

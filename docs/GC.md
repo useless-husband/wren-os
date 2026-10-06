@@ -151,7 +151,7 @@ stop-the-world handshake and per-thread stack bounds; there are no threads to ne
 | Test | What it checks |
 |---|---|
 | `tests/unit/test_gc.c` (host, UBSan/ASan) | size classes, alignment, zeroing; the interior policy word by word in both modes; a randomised model check (3 fixed seeds x 3 configurations x 20,000 operations): after every collection, an object is allocated **if and only if** a model of the graph says it is reachable from the explicit roots, and every survivor's fields and canary are intact; a 4-entry mark stack; a 50,000-node list; the heap shrinking back to zero pages; page runs splitting and merging; the trigger; a full arena. 314,649 checks |
-| `gctest` on 1 and 4 CPUs (13 tests) | reachable objects intact after 40 collections; 10,511 garbage objects reclaimed; heap bounded over 300 rounds (34 MiB allocated, peak 100 pages, kernel free pages within one page of the start); objects held only in x19-x28 or d8 survive, and the same objects die without the registers; stack and `.data`/`.bss` roots; interior and one-past-the-end pointers; cycles; fork; a seeded random graph (0 unreachable nodes retained); large objects; zeroing; coexistence with `malloc` |
+| `gctest` on 1 and 4 CPUs (13 tests) | reachable objects intact after 40 collections; all 10,511 garbage objects of a dropped list and tree reclaimed (the test allows 1% conservative slack); heap bounded over 300 rounds (34 MiB allocated, peak 100 pages, kernel free pages within one page of the start); objects held only in x19-x28 or d8 survive, and identical objects die without the registers; stack and `.data`/`.bss` roots; interior and one-past-the-end pointers; cycles; fork; a seeded random graph (0 unreachable nodes retained); large objects; zeroing; coexistence with `malloc` |
 | `gcdemo 400`, and 4 x `gcdemo 150` at once | the high-water mark stops growing after the first quarter |
 | `leakcheck leakdemo` | exactly the 7 planted blocks, each attributed (through the ELF symbol table) to the function that leaked it; nothing for the fixed variant; the same report on demand; the flag inherited through `leakcheck sh` |
 | mutants (`make mutants`) | dropping the x27/x28 spill, the overflow rescan, or the leak checker's transitive marking each makes a named test fail |
@@ -206,6 +206,9 @@ heap: about 140 us per MiB of small live objects under HVF.
   checker reports a block reachable only through such a pointer, or only from a `gc_malloc` object.
 - **Fixed arena** of 256 MiB of address space, and a mark stack of 8,192 entries (overflow costs
   time, not correctness).
+- **Exit from inside a function.** The report at exit treats whatever is still on the stack as a
+  root. After `main` returns its frame is gone, but a program that calls `exit()` deeper down still
+  has those frames, and blocks they point to are reported as reachable, not leaked.
 - **Reported sizes** are the usable block sizes, requests rounded up to 16 bytes. Sites are raw
   return addresses, one level deep (no full stack traces).
 - **No threads**: correct only because wren-os processes have one.
